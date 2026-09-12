@@ -2,8 +2,11 @@
 <html lang="nl">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Student Task & Priority Planner</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#ffffff">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <title>Studieplanner</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -19,8 +22,8 @@
         <h1>Studieplanner</h1>
       </div>
       
-      <!-- Weergave-knoppen -->
-      <nav class="view-switcher">
+      <!-- Weergave-knoppen (Desktop) -->
+      <nav class="view-switcher desktop-only">
         <button id="view-week-btn" class="btn-toggle active">Week (Ma-Zo)</button>
         <button id="view-rolling7-btn" class="btn-toggle">Komende 7 Dagen</button>
         <button id="view-courses-btn" class="btn-toggle">Per Vak</button>
@@ -37,7 +40,7 @@
 
     <div class="header-actions">
       <!-- Zoekbalk & Vakfilter -->
-      <div class="filter-controls">
+      <div class="filter-controls desktop-only">
         <input type="text" id="search-input" class="search-input" placeholder="Zoek taken...">
         <select id="course-filter-select" class="filter-select">
           <option value="">Alle vakken</option>
@@ -49,13 +52,21 @@
         <button id="today-btn" class="btn btn-secondary">Vandaag</button>
         <button id="next-week-btn" class="btn btn-secondary btn-icon" title="Volgende week">&rarr;</button>
       </div>
-      <button id="open-new-task-btn" class="btn btn-primary">+ Nieuwe Taak</button>
+      <button id="open-new-task-btn" class="btn btn-primary">+ <span class="desktop-only">Nieuwe </span>Taak</button>
     </div>
   </header>
 
+  <!-- Mobiele Zoek- & Filterbalk (enkel mobiel zichtbaar) -->
+  <div class="mobile-filter-bar mobile-only">
+    <input type="text" id="mobile-search-input" placeholder="🔍 Zoek taken...">
+    <select id="mobile-course-filter-select">
+      <option value="">Alle vakken</option>
+    </select>
+  </div>
+
   <!-- Hoofdlayout -->
   <main class="main-layout">
-    <aside class="sidebar">
+    <aside class="sidebar" id="sidebar-panel">
       
       <!-- Examen & Deadline Countdown Widget -->
       <div class="sidebar-widget">
@@ -71,7 +82,7 @@
           <h2>Inbox &amp; Backlog</h2>
           <span id="inbox-count" class="badge">0</span>
         </div>
-        <p class="sidebar-hint">Sleep taken naar een dag of vak.</p>
+        <p class="sidebar-hint">Tik op taken om ze in te plannen of te bewerken.</p>
       </div>
       <div id="inbox-task-list" class="task-list dropzone" data-date=""></div>
 
@@ -83,7 +94,10 @@
       </div>
     </aside>
 
-    <section class="content-section">
+    <section class="content-section" id="content-panel">
+      <!-- Mobiele Dag Navigator (voor soepel switchen per dag) -->
+      <div class="mobile-day-selector mobile-only" id="mobile-day-selector"></div>
+
       <!-- 1. Kalender Grid -->
       <div class="week-grid" id="week-grid"></div>
 
@@ -92,7 +106,7 @@
         <div class="courses-header">
           <div>
             <h2>Vakken &amp; Categorieën</h2>
-            <p class="text-muted">Voortgang en taakverdeling per vak. Sleep taken om ze toe te wijzen.</p>
+            <p class="text-muted">Voortgang en taakverdeling per vak.</p>
           </div>
         </div>
         <div class="courses-grid" id="courses-grid"></div>
@@ -100,20 +114,40 @@
     </section>
   </main>
 
-  <!-- Modal 0: Eenvoudige PIN-beveiliging -->
+  <!-- Mobiele Bottom Nav Bar -->
+  <nav class="mobile-bottom-nav mobile-only">
+    <button class="nav-tab active" data-tab="calendar">
+      <span class="nav-icon">📅</span>
+      <span class="nav-label">Planning</span>
+    </button>
+    <button class="nav-tab" data-tab="inbox">
+      <span class="nav-icon">📥</span>
+      <span class="nav-label">Inbox</span>
+    </button>
+    <button class="nav-tab" data-tab="courses">
+      <span class="nav-icon">📚</span>
+      <span class="nav-label">Vakken</span>
+    </button>
+    <button class="nav-tab" id="quick-add-mobile-btn">
+      <span class="nav-icon-plus">＋</span>
+      <span class="nav-label">Nieuw</span>
+    </button>
+  </nav>
+
+  <!-- Modal 0: PIN-beveiliging -->
   <div id="pin-modal" class="modal-overlay hidden">
     <div class="modal-card" style="max-width: 360px; text-align: center;">
       <h3 style="margin-bottom: 8px;">Beveiligde Toegang</h3>
       <p class="text-muted" style="font-size: 0.85rem; margin-bottom: 16px;">
-        Voer je 4-cijferige pincode in om je taken te synchroniseren.
+        Voer je 4-cijferige pincode in om je planner te ontgrendelen.
       </p>
       <form id="pin-form">
-        <input type="password" id="pin-input" maxlength="6" placeholder="bv. 1234" required style="text-align: center; font-size: 1.5rem; letter-spacing: 6px; margin-bottom: 16px;">
+        <input type="password" inputmode="numeric" id="pin-input" maxlength="6" placeholder="bv. 1234" required style="text-align: center; font-size: 1.5rem; letter-spacing: 6px; margin-bottom: 16px;">
         <button type="submit" class="btn btn-primary" style="width: 100%;">Ontgrendel Planner</button>
       </form>
     </div>
   </div>
-  
+
   <!-- Modal 1: Taak Toevoegen / Bewerken -->
   <div id="task-modal" class="modal-overlay hidden">
     <div class="modal-card">
@@ -273,7 +307,6 @@
 
   <!-- Modal 3: Zen Alpine Focus Sanctuary -->
   <div id="timer-modal" class="focus-overlay hidden">
-    <!-- Subtiel nevel & bergen decor -->
     <div class="zen-backdrop">
       <div class="zen-sun"></div>
       <svg class="zen-mountains-svg" viewBox="0 0 1440 380" preserveAspectRatio="none">
@@ -284,7 +317,6 @@
       <div class="zen-mist"></div>
     </div>
 
-    <!-- Centraal Focus Paneel -->
     <div class="zen-focus-card">
       <div class="zen-header-row">
         <span class="zen-tag">&#x26F0;&#xFE0F; Bergfocus</span>
@@ -301,7 +333,6 @@
         <span id="timer-task-course" class="zen-course-pill">Vak</span>
       </div>
 
-      <!-- Minimalistische Ring -->
       <div class="zen-timer-circle-wrap">
         <svg class="zen-svg-ring" width="260" height="260">
           <circle class="zen-ring-track" cx="130" cy="130" r="115"></circle>
@@ -313,23 +344,21 @@
         </div>
       </div>
 
-      <!-- Tijdsstatistieken -->
       <div class="zen-stats-row">
         <span>Geschat: <strong id="timer-estimated">0</strong></span>
         <span class="zen-bullet">&bull;</span>
-        <span>Reeds gewerkt: <strong id="timer-actual">0</strong></span>
+        <span>Gewerkt: <strong id="timer-actual">0</strong></span>
       </div>
 
-      <!-- Knoppen -->
       <div class="zen-controls">
         <button id="timer-toggle-btn" class="btn-zen-primary">Start Sessie</button>
         <button id="timer-save-btn" class="btn-zen-secondary">Pauzeer &amp; Opslaan</button>
       </div>
     </div>
   </div>
-  <!-- Supabase bibliotheek eerst inladen -->
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
+  <!-- Supabase CDN & Hoofdscript -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="app.js"></script>
 </body>
 </html>

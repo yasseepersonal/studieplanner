@@ -10,7 +10,7 @@ let tasks = [];
 let userPin = localStorage.getItem('study_user_pin') || '';
 
 let currentView = 'week'; // 'week' | 'rolling7' | 'courses'
-let timeUnit = localStorage.getItem('study_time_unit') || 'hours'; // 'hours' | 'minutes'
+let timeUnit = localStorage.getItem('study_time_unit') || 'hours';
 
 let searchQuery = '';
 let selectedCourseFilter = '';
@@ -19,10 +19,13 @@ let currentWeekMonday = getMonday(new Date());
 let rollingStartDate = new Date();
 rollingStartDate.setHours(0, 0, 0, 0);
 
+// Mobiele state
+let mobileActiveTab = 'calendar'; // 'calendar' | 'inbox' | 'courses'
+let mobileSelectedDate = formatDateISO(new Date());
+
 let activeMatrixDate = null;
 let activeTimerTaskId = null;
 
-// Timer State (Tijdstempel-gebaseerd)
 let timerInterval = null;
 let timerStartTime = null;
 let timerAccumulatedSeconds = 0;
@@ -41,7 +44,7 @@ const circleRadius = 115;
 const circumference = 2 * Math.PI * circleRadius;
 
 // ==========================================
-// 2. PINCODE AUTHENTICATIE & INITIALISATIE
+// 2. PINCODE AUTHENTICATIE
 // ==========================================
 function checkAuthAndInit() {
   if (!userPin) {
@@ -65,6 +68,7 @@ document.getElementById('pin-form').addEventListener('submit', (e) => {
 function initApp() {
   fetchTasksFromCloud();
   setupRealtimeSubscription();
+  setupMobileTabs();
 }
 
 // ==========================================
@@ -81,7 +85,6 @@ async function fetchTasksFromCloud() {
 
     if (error) throw error;
 
-    // Filter lokaal op basis van de pincode (zo ziet alleen de bezitter van de pin zijn taken)
     const userTasks = (data || []).filter(t => t.notes && t.notes.includes(`[PIN:${userPin}]`));
 
     tasks = userTasks.map(t => ({
@@ -136,7 +139,6 @@ async function deleteTaskFromCloud(taskId) {
   if (error) console.error("Fout bij verwijderen:", error);
 }
 
-// Realtime synchronisatie: wijzigingen op ander apparaat direct binnenhalen
 function setupRealtimeSubscription() {
   if (!supabaseClient) return;
 
@@ -156,7 +158,7 @@ function saveTasks() {
 }
 
 // ==========================================
-// 4. HULPFUNCTIES & KALENDERLOGICA
+// 4. HULPFUNCTIES
 // ==========================================
 function getMonday(d) {
   const date = new Date(d);
@@ -216,7 +218,49 @@ function filterTasks(taskList) {
 }
 
 // ==========================================
-// 5. RENDERING (KALENDER, INBOX, VAKKEN)
+// 5. MOBIELE NAVIGATIE & TABS
+// ==========================================
+function setupMobileTabs() {
+  const tabs = document.querySelectorAll('.mobile-bottom-nav .nav-tab[data-tab]');
+  const sidebar = document.getElementById('sidebar-panel');
+  const content = document.getElementById('content-panel');
+
+  tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      tabs.forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+
+      const target = tab.dataset.tab;
+      mobileActiveTab = target;
+
+      if (window.innerWidth <= 768) {
+        if (target === 'inbox') {
+          sidebar.style.display = 'flex';
+          content.style.display = 'none';
+        } else if (target === 'courses') {
+          sidebar.style.display = 'none';
+          content.style.display = 'block';
+          setActiveView('courses');
+        } else {
+          sidebar.style.display = 'none';
+          content.style.display = 'block';
+          setActiveView('week');
+        }
+      }
+    });
+  });
+
+  const quickAdd = document.getElementById('quick-add-mobile-btn');
+  if (quickAdd) {
+    quickAdd.onclick = () => {
+      openNewTaskModal();
+      document.getElementById('task-scheduled-date').value = mobileSelectedDate;
+    };
+  }
+}
+
+// ==========================================
+// 6. RENDERING
 // ==========================================
 function renderApp() {
   const weekGrid = document.getElementById('week-grid');
@@ -294,17 +338,20 @@ function renderCountdownWidget() {
 }
 
 function updateFilterOptions() {
-  const select = document.getElementById('course-filter-select');
-  const existing = select.value;
-  select.innerHTML = '<option value="">Alle vakken</option>';
-
+  const selects = [document.getElementById('course-filter-select'), document.getElementById('mobile-course-filter-select')];
   const courses = Array.from(new Set(tasks.map(t => t.course ? t.course.trim() : '').filter(Boolean))).sort();
-  courses.forEach(c => {
-    const opt = document.createElement('option');
-    opt.value = c;
-    opt.textContent = c;
-    if (c === existing) opt.selected = true;
-    select.appendChild(opt);
+
+  selects.forEach(select => {
+    if (!select) return;
+    const existing = select.value;
+    select.innerHTML = '<option value="">Alle vakken</option>';
+    courses.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c;
+      opt.textContent = c;
+      if (c === existing) opt.selected = true;
+      select.appendChild(opt);
+    });
   });
 }
 
@@ -322,11 +369,27 @@ function renderCalendarGrid() {
   document.getElementById('current-week-label').textContent = 
     `${currentView === 'week' ? 'Kalenderweek' : '7-Dagen'}: ${formatDisplayDate(formatDateISO(startDay))} - ${formatDisplayDate(formatDateISO(endDay))}`;
 
+  // Bouw mobiele dagkiezer reep
+  const mobileSelector = document.getElementById('mobile-day-selector');
+  if (mobileSelector) mobileSelector.innerHTML = '';
+
   for (let i = 0; i < 7; i++) {
     const loopDay = new Date(startDay);
     loopDay.setDate(loopDay.getDate() + i);
     const dayISO = formatDateISO(loopDay);
     const isToday = dayISO === todayISO;
+
+    // Mobiele chip
+    if (mobileSelector) {
+      const chip = document.createElement('button');
+      chip.className = `mobile-day-chip ${dayISO === mobileSelectedDate ? 'active' : ''}`;
+      chip.innerHTML = `<strong>${dayNames[loopDay.getDay()].substring(0, 2)}</strong><br>${formatDisplayDate(dayISO)}`;
+      chip.onclick = () => {
+        mobileSelectedDate = dayISO;
+        renderCalendarGrid();
+      };
+      mobileSelector.appendChild(chip);
+    }
 
     const dayTasksRaw = tasks.filter(t => t.scheduledDate === dayISO);
     const dayTasks = filterTasks(dayTasksRaw);
@@ -334,8 +397,10 @@ function renderCalendarGrid() {
     const totalHours = dayTasks.reduce((sum, t) => sum + (Number(t.estimatedHours) || 0), 0);
     const actualHours = dayTasks.reduce((sum, t) => sum + (Number(t.actualHours) || 0), 0);
 
+    const isSelectedOnMobile = dayISO === mobileSelectedDate;
+
     const dayCol = document.createElement('div');
-    dayCol.className = `day-column ${isToday ? 'is-today' : ''}`;
+    dayCol.className = `day-column ${isToday ? 'is-today' : ''} ${isSelectedOnMobile ? 'mobile-visible-day' : ''}`;
 
     dayCol.innerHTML = `
       <div class="day-header">
@@ -606,7 +671,7 @@ document.getElementById('close-matrix-btn').onclick = () => matrixModal.classLis
 function openMatrixModal(dateISO) {
   activeMatrixDate = dateISO;
   document.getElementById('matrix-modal-title').textContent = `Eisenhower Matrix: ${formatDisplayDate(dateISO)}`;
-  document.getElementById('matrix-modal-subtitle').textContent = `Sleep taken tussen kwadranten om hun prioriteit aan te passen.`;
+  document.getElementById('matrix-modal-subtitle').textContent = `Prioriteitenoverzicht.`;
 
   const quadrants = [
     { id: 'matrix-q1-list', urgent: true, important: true },
@@ -764,7 +829,7 @@ async function deleteTask(id, event) {
   }
 }
 
-// --- ZEN ALPINE FOCUS TIMER (MET TIMESTAMP CORRECTIE) ---
+// --- ZEN ALPINE FOCUS TIMER ---
 const timerModal = document.getElementById('timer-modal');
 const timerDisplay = document.getElementById('timer-display');
 const timerSubStatus = document.getElementById('timer-sub-status');
@@ -788,7 +853,7 @@ function getExactElapsedSeconds() {
 }
 
 function openTimerModal(taskId, event) {
-  event.stopPropagation();
+  if (event) event.stopPropagation();
   const task = tasks.find(t => t.id === taskId);
   if (!task) return;
 
@@ -918,7 +983,7 @@ document.getElementById('fullscreen-toggle-btn').onclick = () => {
   }
 };
 
-// --- EENHEID & FILTERS LISTENERS ---
+// --- FILTERS & INPUT EVENTS (DESKTOP + MOBIEL) ---
 document.getElementById('unit-hours-btn').onclick = () => {
   timeUnit = 'hours';
   localStorage.setItem('study_time_unit', 'hours');
@@ -931,14 +996,24 @@ document.getElementById('unit-minutes-btn').onclick = () => {
   renderApp();
 };
 
-document.getElementById('search-input').addEventListener('input', (e) => {
-  searchQuery = e.target.value.trim();
-  renderApp();
+['search-input', 'mobile-search-input'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) {
+    el.addEventListener('input', (e) => {
+      searchQuery = e.target.value.trim();
+      renderApp();
+    });
+  }
 });
 
-document.getElementById('course-filter-select').addEventListener('change', (e) => {
-  selectedCourseFilter = e.target.value;
-  renderApp();
+['course-filter-select', 'mobile-course-filter-select'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) {
+    el.addEventListener('change', (e) => {
+      selectedCourseFilter = e.target.value;
+      renderApp();
+    });
+  }
 });
 
 // --- JSON BACKUP EXPORT & IMPORT ---
@@ -978,16 +1053,16 @@ document.getElementById('import-json-input').addEventListener('change', (e) => {
   reader.readAsText(file);
 });
 
-// --- VIEW SWITCHER & NAVIGATIE ---
+// --- KALENDER NAVIGATIE ---
 const btnWeek = document.getElementById('view-week-btn');
 const btnRolling7 = document.getElementById('view-rolling7-btn');
 const btnCourses = document.getElementById('view-courses-btn');
 
 function setActiveView(view) {
   currentView = view;
-  btnWeek.classList.toggle('active', view === 'week');
-  btnRolling7.classList.toggle('active', view === 'rolling7');
-  btnCourses.classList.toggle('active', view === 'courses');
+  if (btnWeek) btnWeek.classList.toggle('active', view === 'week');
+  if (btnRolling7) btnRolling7.classList.toggle('active', view === 'rolling7');
+  if (btnCourses) btnCourses.classList.toggle('active', view === 'courses');
 
   if (view === 'rolling7') {
     rollingStartDate = new Date();
@@ -996,9 +1071,9 @@ function setActiveView(view) {
   renderApp();
 }
 
-btnWeek.onclick = () => setActiveView('week');
-btnRolling7.onclick = () => setActiveView('rolling7');
-btnCourses.onclick = () => setActiveView('courses');
+if (btnWeek) btnWeek.onclick = () => setActiveView('week');
+if (btnRolling7) btnRolling7.onclick = () => setActiveView('rolling7');
+if (btnCourses) btnCourses.onclick = () => setActiveView('courses');
 
 document.getElementById('prev-week-btn').onclick = () => {
   if (currentView === 'week') currentWeekMonday.setDate(currentWeekMonday.getDate() - 7);
@@ -1018,8 +1093,9 @@ document.getElementById('today-btn').onclick = () => {
     rollingStartDate = new Date();
     rollingStartDate.setHours(0, 0, 0, 0);
   }
+  mobileSelectedDate = formatDateISO(new Date());
   renderApp();
 };
 
-// Start de controle & applicatie
+// Start
 checkAuthAndInit();
