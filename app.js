@@ -47,7 +47,7 @@ const focusQuotes = [
   "\"Adem rustig in. Begin eenvoudig.\""
 ];
 
-const circleRadius = 115;
+const circleRadius = 101;
 const circumference = 2 * Math.PI * circleRadius;
 
 // ==========================================
