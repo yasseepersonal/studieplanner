@@ -1,5 +1,14 @@
+// ==========================================
+// 1. SUPABASE CONFIGURATIE (VUL HIER JE GEGEVENS IN)
+// ==========================================
+const SUPABASE_URL = "https://lcmjzgqjlkeauabgqtjs.supabase.co";// Jouw Project UR
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxjbWp6Z3FqbGtlYXVhYmdxdGpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkyMjAwMjksImV4cCI6MjEwNDc5NjAyOX0.CHSDiIcLxhre7Dc3IN-v65v3iPGhT9r5OXY8N0Wttj8"; // Jouw anon public key
+const supabaseClient = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY) : null;
+
 // --- STATE & DATA ---
-let tasks = JSON.parse(localStorage.getItem('study_tasks')) || [];
+let tasks = [];
+let userPin = localStorage.getItem('study_user_pin') || '';
+
 let currentView = 'week'; // 'week' | 'rolling7' | 'courses'
 let timeUnit = localStorage.getItem('study_time_unit') || 'hours'; // 'hours' | 'minutes'
 
@@ -13,14 +22,13 @@ rollingStartDate.setHours(0, 0, 0, 0);
 let activeMatrixDate = null;
 let activeTimerTaskId = null;
 
-// Timer State (Tijdstempel-gebaseerd tegen achtergrondvertraging)
+// Timer State (Tijdstempel-gebaseerd)
 let timerInterval = null;
 let timerStartTime = null;
 let timerAccumulatedSeconds = 0;
 let quoteInterval = null;
 let draggedTaskId = null;
 
-// Rustgevende Zen & Alpine quotes
 const focusQuotes = [
   "\"Kalmte in het dal, helderheid op de top.\"",
   "\"Stap voor stap, zonder haast. De berg beweegt niet.\"",
@@ -32,7 +40,124 @@ const focusQuotes = [
 const circleRadius = 115;
 const circumference = 2 * Math.PI * circleRadius;
 
-// --- HULPFUNCTIES ---
+// ==========================================
+// 2. PINCODE AUTHENTICATIE & INITIALISATIE
+// ==========================================
+function checkAuthAndInit() {
+  if (!userPin) {
+    document.getElementById('pin-modal').classList.remove('hidden');
+  } else {
+    initApp();
+  }
+}
+
+document.getElementById('pin-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const inputPin = document.getElementById('pin-input').value.trim();
+  if (inputPin) {
+    userPin = inputPin;
+    localStorage.setItem('study_user_pin', userPin);
+    document.getElementById('pin-modal').classList.add('hidden');
+    initApp();
+  }
+});
+
+function initApp() {
+  fetchTasksFromCloud();
+  setupRealtimeSubscription();
+}
+
+// ==========================================
+// 3. CLOUD DATABASE ACTIES (SUPABASE)
+// ==========================================
+async function fetchTasksFromCloud() {
+  if (!supabaseClient) return;
+
+  try {
+    const { data, error } = await supabaseClient
+      .from('tasks')
+      .select('*')
+      .order('id', { ascending: true });
+
+    if (error) throw error;
+
+    // Filter lokaal op basis van de pincode (zo ziet alleen de bezitter van de pin zijn taken)
+    const userTasks = (data || []).filter(t => t.notes && t.notes.includes(`[PIN:${userPin}]`));
+
+    tasks = userTasks.map(t => ({
+      id: t.id,
+      title: t.title,
+      course: t.course,
+      estimatedHours: Number(t.estimated_hours) || 0,
+      actualHours: Number(t.actual_hours) || 0,
+      deadline: t.deadline,
+      scheduledDate: t.scheduled_date,
+      isUrgent: t.is_urgent,
+      isImportant: t.is_important,
+      status: t.status,
+      completed: t.status === 'done',
+      link: t.link,
+      parentId: t.parent_id,
+      notes: (t.notes || '').replace(`[PIN:${userPin}]`, '').trim()
+    }));
+
+    renderApp();
+  } catch (err) {
+    console.error("Fout bij ophalen:", err);
+  }
+}
+
+async function saveTaskToCloud(task) {
+  if (!supabaseClient) return;
+
+  const dbRecord = {
+    id: task.id,
+    title: task.title,
+    course: task.course || null,
+    estimated_hours: task.estimatedHours || 0,
+    actual_hours: task.actualHours || 0,
+    deadline: task.deadline || null,
+    scheduled_date: task.scheduledDate || null,
+    is_urgent: Boolean(task.isUrgent),
+    is_important: Boolean(task.isImportant),
+    status: task.status || 'not_started',
+    link: task.link || null,
+    parent_id: task.parentId || null,
+    notes: `${task.notes || ''} [PIN:${userPin}]`
+  };
+
+  const { error } = await supabaseClient.from('tasks').upsert(dbRecord);
+  if (error) console.error("Fout bij opslaan taak:", error);
+}
+
+async function deleteTaskFromCloud(taskId) {
+  if (!supabaseClient) return;
+  const { error } = await supabaseClient.from('tasks').delete().eq('id', taskId);
+  if (error) console.error("Fout bij verwijderen:", error);
+}
+
+// Realtime synchronisatie: wijzigingen op ander apparaat direct binnenhalen
+function setupRealtimeSubscription() {
+  if (!supabaseClient) return;
+
+  supabaseClient
+    .channel('tasks-realtime-channel')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, () => {
+      fetchTasksFromCloud();
+    })
+    .subscribe();
+}
+
+function saveTasks() {
+  renderApp();
+  if (activeMatrixDate && !document.getElementById('matrix-modal').classList.contains('hidden')) {
+    openMatrixModal(activeMatrixDate);
+  }
+}
+
+// ==========================================
+// 4. HULPFUNCTIES & KALENDERLOGICA
+// ==========================================
 function getMonday(d) {
   const date = new Date(d);
   const day = date.getDay();
@@ -78,14 +203,6 @@ function isTaskOverdue(task) {
   return Boolean(scheduledInPast || deadlineInPast);
 }
 
-function saveTasks() {
-  localStorage.setItem('study_tasks', JSON.stringify(tasks));
-  renderApp();
-  if (activeMatrixDate && !document.getElementById('matrix-modal').classList.contains('hidden')) {
-    openMatrixModal(activeMatrixDate);
-  }
-}
-
 function filterTasks(taskList) {
   return taskList.filter(task => {
     const matchesSearch = !searchQuery || 
@@ -98,7 +215,9 @@ function filterTasks(taskList) {
   });
 }
 
-// --- ROUTING & RENDERING ---
+// ==========================================
+// 5. RENDERING (KALENDER, INBOX, VAKKEN)
+// ==========================================
 function renderApp() {
   const weekGrid = document.getElementById('week-grid');
   const coursesView = document.getElementById('courses-view');
@@ -127,7 +246,6 @@ function renderApp() {
   updateParentTaskOptions();
 }
 
-// --- COUNTDOWN WIDGET ---
 function renderCountdownWidget() {
   const container = document.getElementById('countdown-list');
   container.innerHTML = '';
@@ -190,7 +308,6 @@ function updateFilterOptions() {
   });
 }
 
-// --- 1. KALENDER GRID ---
 function renderCalendarGrid() {
   const grid = document.getElementById('week-grid');
   grid.innerHTML = '';
@@ -241,7 +358,6 @@ function renderCalendarGrid() {
   }
 }
 
-// --- 2. VAKKEN OVERZICHT ---
 function renderCoursesView() {
   const container = document.getElementById('courses-grid');
   container.innerHTML = '';
@@ -301,7 +417,6 @@ function openTaskModalForCourse(courseName) {
   document.getElementById('task-course').value = courseName;
 }
 
-// --- 3. INBOX OVERZICHT ---
 function renderInbox() {
   const container = document.getElementById('inbox-task-list');
   container.innerHTML = '';
@@ -341,6 +456,7 @@ function rescheduleToToday(taskId, event) {
   const task = tasks.find(t => t.id === taskId);
   if (task) {
     task.scheduledDate = formatDateISO(new Date());
+    saveTaskToCloud(task);
     saveTasks();
   }
 }
@@ -359,6 +475,7 @@ function cycleTaskStatus(taskId, event) {
     task.status = 'not_started';
     task.completed = false;
   }
+  saveTaskToCloud(task);
   saveTasks();
 }
 
@@ -464,15 +581,18 @@ function setupDropzone(el, type) {
     if (!task) return;
 
     if (type === 'calendar') {
-      task.scheduledDate = el.dataset.date || '';
+      task.scheduledDate = el.dataset.date || null;
+      saveTaskToCloud(task);
       saveTasks();
     } else if (type === 'matrix') {
       task.isUrgent = el.dataset.urgent === 'true';
       task.isImportant = el.dataset.important === 'true';
+      saveTaskToCloud(task);
       saveTasks();
     } else if (type === 'course') {
       const targetCourse = el.dataset.course;
       task.course = targetCourse === 'Zonder Vak' ? '' : targetCourse;
+      saveTaskToCloud(task);
       saveTasks();
     }
   });
@@ -578,7 +698,7 @@ function editTask(id, event) {
   taskModal.classList.remove('hidden');
 }
 
-document.getElementById('task-form').addEventListener('submit', (e) => {
+document.getElementById('task-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const id = document.getElementById('task-id').value;
   const parentId = document.getElementById('task-parent-id').value || null;
@@ -595,27 +715,33 @@ document.getElementById('task-form').addEventListener('submit', (e) => {
     status: status,
     completed: status === 'done',
     estimatedHours: estimatedHours,
-    deadline: document.getElementById('task-deadline').value,
-    scheduledDate: document.getElementById('task-scheduled-date').value,
+    deadline: document.getElementById('task-deadline').value || null,
+    scheduledDate: document.getElementById('task-scheduled-date').value || null,
     isUrgent: document.getElementById('task-urgent').checked,
     isImportant: document.getElementById('task-important').checked,
-    link: document.getElementById('task-link').value,
-    notes: document.getElementById('task-notes').value
+    link: document.getElementById('task-link').value || null,
+    notes: document.getElementById('task-notes').value || ''
   };
 
+  let savedTask;
   if (id) {
     const idx = tasks.findIndex(t => t.id === id);
-    if (idx !== -1) tasks[idx] = { ...tasks[idx], ...taskData };
+    if (idx !== -1) {
+      tasks[idx] = { ...tasks[idx], ...taskData };
+      savedTask = tasks[idx];
+    }
   } else {
-    tasks.push({
+    savedTask = {
       id: 'task_' + Date.now(),
       actualHours: 0,
       ...taskData
-    });
+    };
+    tasks.push(savedTask);
   }
 
   saveTasks();
   taskModal.classList.add('hidden');
+  if (savedTask) await saveTaskToCloud(savedTask);
 });
 
 function toggleTaskStatus(id, event) {
@@ -624,19 +750,21 @@ function toggleTaskStatus(id, event) {
   if (task) {
     task.completed = !task.completed;
     task.status = task.completed ? 'done' : 'not_started';
+    saveTaskToCloud(task);
     saveTasks();
   }
 }
 
-function deleteTask(id, event) {
+async function deleteTask(id, event) {
   event.stopPropagation();
   if (confirm('Wil je deze taak verwijderen?')) {
     tasks = tasks.filter(t => t.id !== id && t.parentId !== id);
     saveTasks();
+    await deleteTaskFromCloud(id);
   }
 }
 
-// --- ZEN ALPINE FOCUS TIMER (MET TIMESTAMP CORRECTION) ---
+// --- ZEN ALPINE FOCUS TIMER (MET TIMESTAMP CORRECTIE) ---
 const timerModal = document.getElementById('timer-modal');
 const timerDisplay = document.getElementById('timer-display');
 const timerSubStatus = document.getElementById('timer-sub-status');
@@ -653,11 +781,8 @@ function setZenProgress(percent) {
   }
 }
 
-// Berekent de totale verstreken tijd op basis van echte milliseconden
 function getExactElapsedSeconds() {
-  if (!timerStartTime) {
-    return timerAccumulatedSeconds;
-  }
+  if (!timerStartTime) return timerAccumulatedSeconds;
   const diffInSeconds = Math.floor((Date.now() - timerStartTime) / 1000);
   return timerAccumulatedSeconds + diffInSeconds;
 }
@@ -716,7 +841,6 @@ function updateTimerDisplay() {
 
 timerToggleBtn.onclick = () => {
   if (timerStartTime) {
-    // Pauzeren: sla opgebouwde seconden op en reset starttijdstempel
     timerAccumulatedSeconds += Math.floor((Date.now() - timerStartTime) / 1000);
     timerStartTime = null;
     clearInterval(timerInterval);
@@ -727,9 +851,8 @@ timerToggleBtn.onclick = () => {
     timerSubStatus.textContent = 'Even gepauzeerd';
     updateTimerDisplay();
   } else {
-    // Starten: zet timestamp van nu
     timerStartTime = Date.now();
-    timerInterval = setInterval(updateTimerDisplay, 250); // Snelle refresh (250ms) voor soepele synchronisatie
+    timerInterval = setInterval(updateTimerDisplay, 250);
 
     timerToggleBtn.textContent = 'Pauzeer Sessie';
     timerToggleBtn.classList.add('is-running');
@@ -738,7 +861,6 @@ timerToggleBtn.onclick = () => {
   }
 };
 
-// Zodra je terugkeert naar dit tabblad, update het scherm direct
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden && !timerModal.classList.contains('hidden')) {
     updateTimerDisplay();
@@ -767,6 +889,7 @@ function stopTimerAndSave() {
   const task = tasks.find(t => t.id === activeTimerTaskId);
   if (task && elapsed > 0) {
     task.actualHours = (task.actualHours || 0) + (elapsed / 3600);
+    saveTaskToCloud(task);
     saveTasks();
   }
   closeTimerModalDirect();
@@ -834,13 +957,16 @@ document.getElementById('import-json-input').addEventListener('change', (e) => {
   if (!file) return;
 
   const reader = new FileReader();
-  reader.onload = (event) => {
+  reader.onload = async (event) => {
     try {
       const importedTasks = JSON.parse(event.target.result);
       if (Array.isArray(importedTasks)) {
         if (confirm(`Wil je ${importedTasks.length} taken importeren? Huidige taken worden overschreven.`)) {
           tasks = importedTasks;
           saveTasks();
+          for (const t of tasks) {
+            await saveTaskToCloud(t);
+          }
         }
       } else {
         alert('Ongeldig back-upbestand: verwacht een lijst met taken.');
@@ -895,5 +1021,5 @@ document.getElementById('today-btn').onclick = () => {
   renderApp();
 };
 
-// Start de planner
-renderApp();
+// Start de controle & applicatie
+checkAuthAndInit();
