@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Student Task & Priority Planner</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Bovenbalk -->
+  <header class="app-header">
+    <div class="header-left">
+      <div class="brand-logo">
+        <span class="brand-icon">&#x2728;</span>
+        <h1>Studieplanner</h1>
+      </div>
+      
+      <!-- Weergave-knoppen -->
+      <nav class="view-switcher">
+        <button id="view-week-btn" class="btn-toggle active">Week (Ma-Zo)</button>
+        <button id="view-rolling7-btn" class="btn-toggle">Komende 7 Dagen</button>
+        <button id="view-courses-btn" class="btn-toggle">Per Vak</button>
+      </nav>
+
+      <!-- Tijdseenheid Switcher -->
+      <div class="unit-toggle-group">
+        <button id="unit-hours-btn" class="btn-unit active" title="Weergave in uren">Uur</button>
+        <button id="unit-minutes-btn" class="btn-unit" title="Weergave in minuten">Min</button>
+      </div>
+
+      <span id="current-week-label" class="week-label"></span>
+    </div>
+
+    <div class="header-actions">
+      <!-- Zoekbalk & Vakfilter -->
+      <div class="filter-controls">
+        <input type="text" id="search-input" class="search-input" placeholder="Zoek taken...">
+        <select id="course-filter-select" class="filter-select">
+          <option value="">Alle vakken</option>
+        </select>
+      </div>
+
+      <div id="nav-arrows-group" class="btn-group">
+        <button id="prev-week-btn" class="btn btn-secondary btn-icon" title="Vorige week">&larr;</button>
+        <button id="today-btn" class="btn btn-secondary">Vandaag</button>
+        <button id="next-week-btn" class="btn btn-secondary btn-icon" title="Volgende week">&rarr;</button>
+      </div>
+      <button id="open-new-task-btn" class="btn btn-primary">+ Nieuwe Taak</button>
+    </div>
+  </header>
+
+  <!-- Hoofdlayout -->
+  <main class="main-layout">
+    <aside class="sidebar">
+      
+      <!-- Examen & Deadline Countdown Widget -->
+      <div class="sidebar-widget">
+        <div class="widget-header">
+          <h3>&#x23F3; Deadline Countdown</h3>
+        </div>
+        <div id="countdown-list" class="countdown-list"></div>
+      </div>
+
+      <!-- Inbox / Achterstallig -->
+      <div class="sidebar-header">
+        <div class="sidebar-title-row">
+          <h2>Inbox &amp; Backlog</h2>
+          <span id="inbox-count" class="badge">0</span>
+        </div>
+        <p class="sidebar-hint">Sleep taken naar een dag of vak.</p>
+      </div>
+      <div id="inbox-task-list" class="task-list dropzone" data-date=""></div>
+
+      <!-- Backup Export & Import Knoppen -->
+      <div class="sidebar-footer">
+        <button id="export-json-btn" class="btn btn-secondary btn-xs" title="Download back-up">&#x21E9; Backup Export</button>
+        <label for="import-json-input" class="btn btn-secondary btn-xs" title="Herstel back-up">&#x21E7; Import</label>
+        <input type="file" id="import-json-input" accept=".json" style="display: none;">
+      </div>
+    </aside>
+
+    <section class="content-section">
+      <!-- 1. Kalender Grid -->
+      <div class="week-grid" id="week-grid"></div>
+
+      <!-- 2. Vakken Grid -->
+      <div class="courses-view hidden" id="courses-view">
+        <div class="courses-header">
+          <div>
+            <h2>Vakken &amp; Categorieën</h2>
+            <p class="text-muted">Voortgang en taakverdeling per vak. Sleep taken om ze toe te wijzen.</p>
+          </div>
+        </div>
+        <div class="courses-grid" id="courses-grid"></div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Modal 1: Taak Toevoegen / Bewerken -->
+  <div id="task-modal" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="modal-title">Nieuwe taak toevoegen</h3>
+        <button id="close-task-modal" class="btn-close">&times;</button>
+      </div>
+      <form id="task-form">
+        <input type="hidden" id="task-id">
+
+        <div class="form-group">
+          <label for="task-title">Taak / Omschrijving *</label>
+          <input type="text" id="task-title" required placeholder="bijv. H4 Samenvatten of Oefeningen maken">
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="task-status">Status</label>
+            <select id="task-status">
+              <option value="not_started">Niet gestart</option>
+              <option value="in_progress">Bezig</option>
+              <option value="done">Voltooid</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="task-parent-id">Deeltaak van?</label>
+            <select id="task-parent-id">
+              <option value="">-- Geen (hoofdtaak) --</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="task-course">Vak / Categorie</label>
+            <input type="text" id="task-course" placeholder="bijv. Statistiek of Logistiek">
+          </div>
+          <div class="form-group">
+            <label for="task-duration-input">Geschatte duur</label>
+            <div class="input-with-unit">
+              <input type="number" id="task-duration-input" min="1" step="any" value="60" required>
+              <select id="task-duration-unit" class="select-unit">
+                <option value="minutes">Minuten</option>
+                <option value="hours">Uren</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="task-deadline">Uiterste Deadline</label>
+            <input type="date" id="task-deadline">
+          </div>
+          <div class="form-group">
+            <label for="task-scheduled-date">Inplannen op dag</label>
+            <input type="date" id="task-scheduled-date">
+          </div>
+        </div>
+
+        <fieldset class="form-fieldset">
+          <legend>Eisenhower Prioriteit (Bepaalt de kleurcode)</legend>
+          <div class="checkbox-row">
+            <label class="custom-checkbox">
+              <input type="checkbox" id="task-urgent">
+              <span class="checkbox-box"></span>
+              <span><strong>Dringend</strong> (Heeft snelle actie nodig)</span>
+            </label>
+            <label class="custom-checkbox">
+              <input type="checkbox" id="task-important">
+              <span class="checkbox-box"></span>
+              <span><strong>Belangrijk</strong> (Hoge impact op studieresultaat)</span>
+            </label>
+          </div>
+        </fieldset>
+
+        <div class="form-group">
+          <label for="task-link">Handige Link</label>
+          <input type="url" id="task-link" placeholder="https://toledo.kuleuven.be / drive / paper...">
+        </div>
+
+        <div class="form-group">
+          <label for="task-notes">Notities</label>
+          <textarea id="task-notes" rows="2" placeholder="Paginanummers, tips of specifieke formules..."></textarea>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" id="cancel-task-btn" class="btn btn-secondary">Annuleren</button>
+          <button type="submit" class="btn btn-primary">Opslaan</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal 2: Eisenhower Matrix -->
+  <div id="matrix-modal" class="modal-overlay hidden">
+    <div class="modal-card modal-card-large">
+      <div class="modal-header">
+        <div>
+          <h3 id="matrix-modal-title">Eisenhower Matrix</h3>
+          <p id="matrix-modal-subtitle" class="text-muted"></p>
+        </div>
+        <button id="close-matrix-modal" class="btn-close">&times;</button>
+      </div>
+
+      <div class="matrix-grid">
+        <div class="matrix-quadrant quadrant-q1">
+          <div class="quadrant-header">
+            <div>
+              <h4>Q1: Direct Doen</h4>
+              <span class="quadrant-sub">Dringend &amp; Belangrijk</span>
+            </div>
+            <button class="btn btn-secondary btn-xs" onclick="openTaskModalForQuadrant(true, true)">+ Taak</button>
+          </div>
+          <div class="matrix-task-list matrix-dropzone" id="matrix-q1-list" data-urgent="true" data-important="true"></div>
+        </div>
+
+        <div class="matrix-quadrant quadrant-q2">
+          <div class="quadrant-header">
+            <div>
+              <h4>Q2: Plannen / Focus</h4>
+              <span class="quadrant-sub">Niet dringend, wél Belangrijk</span>
+            </div>
+            <button class="btn btn-secondary btn-xs" onclick="openTaskModalForQuadrant(false, true)">+ Taak</button>
+          </div>
+          <div class="matrix-task-list matrix-dropzone" id="matrix-q2-list" data-urgent="false" data-important="true"></div>
+        </div>
+
+        <div class="matrix-quadrant quadrant-q3">
+          <div class="quadrant-header">
+            <div>
+              <h4>Q3: Snel Tussendoor</h4>
+              <span class="quadrant-sub">Dringend, niet Belangrijk</span>
+            </div>
+            <button class="btn btn-secondary btn-xs" onclick="openTaskModalForQuadrant(true, false)">+ Taak</button>
+          </div>
+          <div class="matrix-task-list matrix-dropzone" id="matrix-q3-list" data-urgent="true" data-important="false"></div>
+        </div>
+
+        <div class="matrix-quadrant quadrant-q4">
+          <div class="quadrant-header">
+            <div>
+              <h4>Q4: Laagste Prioriteit</h4>
+              <span class="quadrant-sub">Niet dringend &amp; niet Belangrijk</span>
+            </div>
+            <button class="btn btn-secondary btn-xs" onclick="openTaskModalForQuadrant(false, false)">+ Taak</button>
+          </div>
+          <div class="matrix-task-list matrix-dropzone" id="matrix-q4-list" data-urgent="false" data-important="false"></div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button id="close-matrix-btn" class="btn btn-secondary">Sluiten</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 3: Zen Alpine Focus Sanctuary -->
+  <div id="timer-modal" class="focus-overlay hidden">
+    <!-- Subtiel nevel & bergen decor -->
+    <div class="zen-backdrop">
+      <div class="zen-sun"></div>
+      <svg class="zen-mountains-svg" viewBox="0 0 1440 380" preserveAspectRatio="none">
+        <path class="zen-mountain-3" d="M0,380 L0,180 Q220,90 480,210 T960,160 Q1220,110 1440,240 L1440,380 Z"></path>
+        <path class="zen-mountain-2" d="M0,380 L0,230 Q280,160 580,260 T1120,200 Q1300,180 1440,270 L1440,380 Z"></path>
+        <path class="zen-mountain-1" d="M0,380 L0,290 Q340,230 720,310 T1440,280 L1440,380 Z"></path>
+      </svg>
+      <div class="zen-mist"></div>
+    </div>
+
+    <!-- Centraal Focus Paneel -->
+    <div class="zen-focus-card">
+      <div class="zen-header-row">
+        <span class="zen-tag">&#x26F0;&#xFE0F; Bergfocus</span>
+        <div class="zen-header-actions">
+          <button id="fullscreen-toggle-btn" class="zen-ghost-btn" title="Volledig scherm">&#x26F6;</button>
+          <button id="close-timer-modal" class="zen-ghost-btn" title="Sluiten">&times;</button>
+        </div>
+      </div>
+
+      <div class="zen-quote" id="focus-quote">"Kalmte in het dal, helderheid op de top."</div>
+
+      <div class="zen-task-meta">
+        <h2 id="timer-task-title">Taaknaam</h2>
+        <span id="timer-task-course" class="zen-course-pill">Vak</span>
+      </div>
+
+      <!-- Minimalistische Ring -->
+      <div class="zen-timer-circle-wrap">
+        <svg class="zen-svg-ring" width="260" height="260">
+          <circle class="zen-ring-track" cx="130" cy="130" r="115"></circle>
+          <circle id="progress-ring-circle" class="zen-ring-bar" cx="130" cy="130" r="115"></circle>
+        </svg>
+        <div class="zen-timer-center">
+          <div class="zen-timer-digits" id="timer-display">00:00:00</div>
+          <span class="zen-status-caption" id="timer-sub-status">Adem in &bull; Focus</span>
+        </div>
+      </div>
+
+      <!-- Tijdsstatistieken -->
+      <div class="zen-stats-row">
+        <span>Geschat: <strong id="timer-estimated">0</strong></span>
+        <span class="zen-bullet">&bull;</span>
+        <span>Reeds gewerkt: <strong id="timer-actual">0</strong></span>
+      </div>
+
+      <!-- Knoppen -->
+      <div class="zen-controls">
+        <button id="timer-toggle-btn" class="btn-zen-primary">Start Sessie</button>
+        <button id="timer-save-btn" class="btn-zen-secondary">Pauzeer &amp; Opslaan</button>
+      </div>
+    </div>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>
