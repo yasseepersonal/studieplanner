@@ -7,6 +7,9 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <title>Studieplanner</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon-192.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -24,8 +27,8 @@
       
       <!-- Weergave-knoppen (Desktop) -->
       <nav class="view-switcher desktop-only">
-        <button id="view-week-btn" class="btn-toggle active">Week (Ma-Zo)</button>
-        <button id="view-rolling7-btn" class="btn-toggle">Komende 7 Dagen</button>
+        <button id="view-week-btn" class="btn-toggle">Week (Ma-Zo)</button>
+        <button id="view-rolling7-btn" class="btn-toggle active">Komende 7 Dagen</button>
         <button id="view-courses-btn" class="btn-toggle">Per Vak</button>
       </nav>
 
@@ -52,6 +55,7 @@
         <button id="today-btn" class="btn btn-secondary">Vandaag</button>
         <button id="next-week-btn" class="btn btn-secondary btn-icon" title="Volgende week">&rarr;</button>
       </div>
+      <button id="theme-toggle-btn" class="btn btn-secondary btn-icon" title="Donkere/lichte modus">&#x1F319;</button>
       <button id="logout-pin-btn" class="btn btn-secondary btn-icon" title="Pincode wijzigen / Uitloggen">&#x1F511;</button>
       <button id="open-new-task-btn" class="btn btn-primary">+ <span class="desktop-only">Nieuwe </span>Taak</button>
     </div>
@@ -92,6 +96,7 @@
         <button id="export-json-btn" class="btn btn-secondary btn-xs" title="Download back-up">&#x21E9; Backup Export</button>
         <label for="import-json-input" class="btn btn-secondary btn-xs" title="Herstel back-up">&#x21E7; Import</label>
         <input type="file" id="import-json-input" accept=".json" style="display: none;">
+        <button id="export-ics-btn" class="btn btn-secondary btn-xs" title="Alle deadlines als .ics, te importeren in Google Agenda">&#x1F4C5; Agenda Export</button>
       </div>
     </aside>
 
@@ -140,10 +145,11 @@
     <div class="modal-card" style="max-width: 360px; text-align: center;">
       <h3 style="margin-bottom: 8px;">Beveiligde Toegang</h3>
       <p class="text-muted" style="font-size: 0.85rem; margin-bottom: 16px;">
-        Voer je 4-cijferige pincode in om je planner te ontgrendelen.
+        Voer je pincode in (min. 6 tekens) om je planner te ontgrendelen. Deze code is nu ook je wachtwoord bij Supabase, dus kies iets dat niet voor de hand ligt.
       </p>
       <form id="pin-form">
-        <input type="password" inputmode="numeric" id="pin-input" maxlength="6" placeholder="bv. 1234" required style="text-align: center; font-size: 1.5rem; letter-spacing: 6px; margin-bottom: 16px;">
+        <input type="password" inputmode="text" id="pin-input" maxlength="24" minlength="6" placeholder="bv. 482913 of jouwGeheimeCode" required style="text-align: center; font-size: 1.3rem; letter-spacing: 3px; margin-bottom: 8px;">
+        <p id="pin-error" class="pin-error-text"></p>
         <button type="submit" class="btn btn-primary" style="width: 100%;">Ontgrendel Planner</button>
       </form>
     </div>
@@ -224,6 +230,15 @@
             </label>
           </div>
         </fieldset>
+
+        <div class="form-group">
+          <label>Checklist / Subtaken</label>
+          <div id="checklist-editor-list" class="checklist-editor-list"></div>
+          <div class="checklist-add-row">
+            <input type="text" id="checklist-new-item-input" placeholder="bijv. p.10-25 lezen">
+            <button type="button" id="checklist-add-btn" class="btn btn-secondary btn-xs">+ Item</button>
+          </div>
+        </div>
 
         <div class="form-group">
           <label for="task-link">Handige Link</label>

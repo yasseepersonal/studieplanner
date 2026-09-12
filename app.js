@@ -7,10 +7,13 @@ const supabaseClient = window.supabase ? window.supabase.createClient(SUPABASE_U
 
 // --- STATE & DATA ---
 let tasks = [];
-let userPin = localStorage.getItem('study_user_pin') || '';
+let currentUser = null; // Supabase auth user, ingesteld na succesvolle login
 
-let currentView = 'week'; // 'week' | 'rolling7' | 'courses'
+let currentView = 'rolling7'; // 'week' | 'rolling7' | 'courses' — opent standaard op de komende 7 dagen
 let timeUnit = localStorage.getItem('study_time_unit') || 'hours';
+
+let currentTheme = localStorage.getItem('study_theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+let editingChecklist = []; // tijdelijke checklist-items terwijl de taak-modal open staat
 
 let searchQuery = '';
 let selectedCourseFilter = '';
@@ -44,31 +47,83 @@ const circleRadius = 115;
 const circumference = 2 * Math.PI * circleRadius;
 
 // ==========================================
-// 2. PINCODE AUTHENTICATIE
+// 2. AUTHENTICATIE (Supabase Auth i.p.v. tekst-matching op een PIN)
 // ==========================================
-function checkAuthAndInit() {
-  if (!userPin) {
+// De pincode is nu je wachtwoord: Supabase slaat 'm gehashed op (nooit
+// leesbaar in de database) en Row Level Security op de server zorgt dat
+// deze sessie enkel ooit de eigen taken van deze gebruiker teruggeeft,
+// zelfs als iemand de (publieke) anon key uit deze file zou misbruiken.
+function pinToEmail(pin) {
+  return `pin-${pin}@studieplanner.local`; // vast, niet-geheim "domein"; het wachtwoord is het geheim
+}
+
+async function checkAuthAndInit() {
+  applyTheme(currentTheme);
+  if (!supabaseClient) {
     document.getElementById('pin-modal').classList.remove('hidden');
-  } else {
+    return;
+  }
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  if (session) {
+    currentUser = session.user;
     initApp();
+  } else {
+    document.getElementById('pin-modal').classList.remove('hidden');
   }
 }
 
-document.getElementById('pin-form').addEventListener('submit', (e) => {
+document.getElementById('pin-form').addEventListener('submit', async (e) => {
   e.preventDefault();
+  const submitBtn = e.target.querySelector('button[type="submit"]');
   const inputPin = document.getElementById('pin-input').value.trim();
-  if (inputPin) {
-    userPin = inputPin;
-    localStorage.setItem('study_user_pin', userPin);
-    document.getElementById('pin-modal').classList.add('hidden');
-    initApp();
+  const pinError = document.getElementById('pin-error');
+  if (pinError) pinError.textContent = '';
+
+  if (!inputPin || inputPin.length < 6) {
+    if (pinError) pinError.textContent = 'Gebruik minstens 6 tekens/cijfers — dit is nu ook je wachtwoord.';
+    return;
   }
+  if (!supabaseClient) {
+    if (pinError) pinError.textContent = 'Kan geen verbinding maken met de cloud.';
+    return;
+  }
+
+  submitBtn.disabled = true;
+  submitBtn.textContent = 'Bezig...';
+  const email = pinToEmail(inputPin);
+
+  // Probeer eerst in te loggen (bestaande pincode op dit of een ander toestel)
+  let { data, error } = await supabaseClient.auth.signInWithPassword({ email, password: inputPin });
+
+  // Nog geen account met deze pincode? Dan wordt 'm nu aangemaakt.
+  if (error) {
+    const signUpResult = await supabaseClient.auth.signUp({ email, password: inputPin });
+    if (signUpResult.error) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Ontgrendel Planner';
+      if (pinError) pinError.textContent = 'Inloggen mislukt: ' + signUpResult.error.message;
+      return;
+    }
+    data = signUpResult.data;
+  }
+
+  if (!data.session) {
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Ontgrendel Planner';
+    if (pinError) pinError.textContent = 'Geen sessie gestart. Controleer of e-mailbevestiging uitstaat in Supabase (Authentication > Providers > Email > "Confirm email").';
+    return;
+  }
+
+  currentUser = data.session.user;
+  document.getElementById('pin-modal').classList.add('hidden');
+  initApp();
 });
 
 function initApp() {
   fetchTasksFromCloud();
   setupRealtimeSubscription();
   setupMobileTabs();
+  registerServiceWorker();
 }
 
 // ==========================================
@@ -85,9 +140,9 @@ async function fetchTasksFromCloud() {
 
     if (error) throw error;
 
-    const userTasks = (data || []).filter(t => t.notes && t.notes.includes(`[PIN:${userPin}]`));
-
-    tasks = userTasks.map(t => ({
+    // Geen handmatige PIN-filter meer nodig: Row Level Security zorgt dat
+    // deze query alleen taken van de ingelogde gebruiker teruggeeft.
+    tasks = (data || []).map(t => ({
       id: t.id,
       title: t.title,
       course: t.course,
@@ -101,12 +156,14 @@ async function fetchTasksFromCloud() {
       completed: t.status === 'done',
       link: t.link,
       parentId: t.parent_id,
-      notes: (t.notes || '').replace(`[PIN:${userPin}]`, '').trim()
+      notes: t.notes || '',
+      checklist: Array.isArray(t.checklist) ? t.checklist : []
     }));
 
     renderApp();
   } catch (err) {
     console.error("Fout bij ophalen:", err);
+    showToast('Kon taken niet ophalen. Controleer je internetverbinding.', 'error');
   }
 }
 
@@ -126,17 +183,24 @@ async function saveTaskToCloud(task) {
     status: task.status || 'not_started',
     link: task.link || null,
     parent_id: task.parentId || null,
-    notes: `${task.notes || ''} [PIN:${userPin}]`
+    notes: task.notes || '',
+    checklist: Array.isArray(task.checklist) ? task.checklist : []
   };
 
   const { error } = await supabaseClient.from('tasks').upsert(dbRecord);
-  if (error) console.error("Fout bij opslaan taak:", error);
+  if (error) {
+    console.error("Fout bij opslaan taak:", error);
+    showToast('Opslaan mislukt: ' + error.message, 'error');
+  }
 }
 
 async function deleteTaskFromCloud(taskId) {
   if (!supabaseClient) return;
   const { error } = await supabaseClient.from('tasks').delete().eq('id', taskId);
-  if (error) console.error("Fout bij verwijderen:", error);
+  if (error) {
+    console.error("Fout bij verwijderen:", error);
+    showToast('Verwijderen mislukt: ' + error.message, 'error');
+  }
 }
 
 function setupRealtimeSubscription() {
@@ -203,6 +267,14 @@ function isTaskOverdue(task) {
   const scheduledInPast = task.scheduledDate && task.scheduledDate < todayISO;
   const deadlineInPast = task.deadline && task.deadline < todayISO;
   return Boolean(scheduledInPast || deadlineInPast);
+}
+
+function debounce(fn, delay = 250) {
+  let timer = null;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), delay);
+  };
 }
 
 function filterTasks(taskList) {
@@ -544,6 +616,17 @@ function cycleTaskStatus(taskId, event) {
   saveTasks();
 }
 
+function toggleChecklistItem(taskId, itemId, event) {
+  event.stopPropagation();
+  const task = tasks.find(t => t.id === taskId);
+  if (!task || !Array.isArray(task.checklist)) return;
+  const item = task.checklist.find(c => c.id === itemId);
+  if (!item) return;
+  item.done = !item.done;
+  saveTaskToCloud(task);
+  saveTasks();
+}
+
 function renderTaskHierarchy(container, taskList) {
   const rootTasks = taskList.filter(t => !t.parentId);
 
@@ -571,9 +654,14 @@ function createTaskCard(task, isSubtask = false) {
   const card = document.createElement('div');
   const isDone = task.completed || task.status === 'done';
 
-  card.className = `task-card ${getPriorityClass(task)} ${isDone ? 'completed' : ''} ${isSubtask ? 'is-subtask' : ''} ${overdue ? 'is-overdue' : ''}`;
+  card.className = `task-card task-card-clickable ${getPriorityClass(task)} ${isDone ? 'completed' : ''} ${isSubtask ? 'is-subtask' : ''} ${overdue ? 'is-overdue' : ''}`;
   card.setAttribute('draggable', 'true');
   card.dataset.id = task.id;
+  card.title = 'Klik om deze taak te bewerken';
+
+  card.addEventListener('click', (e) => {
+    editTask(task.id, e);
+  });
 
   card.addEventListener('dragstart', (e) => {
     draggedTaskId = task.id;
@@ -598,6 +686,27 @@ function createTaskCard(task, isSubtask = false) {
     ? `<button class="btn btn-xs btn-reschedule-today" onclick="rescheduleToToday('${task.id}', event)" title="Verzet naar vandaag">&#10148; Vandaag</button>` 
     : '';
 
+  const gcalBtn = task.deadline
+    ? `<button class="btn btn-secondary btn-xs" onclick="addTaskToGoogleCalendar('${task.id}', event)" title="Deadline toevoegen aan Google Agenda">&#128197;</button>`
+    : '';
+
+  let checklistHTML = '';
+  if (Array.isArray(task.checklist) && task.checklist.length > 0) {
+    const doneCount = task.checklist.filter(c => c.done).length;
+    const itemsHTML = task.checklist.map(c => `
+      <label class="mini-checklist-item ${c.done ? 'done' : ''}">
+        <input type="checkbox" ${c.done ? 'checked' : ''} onclick="toggleChecklistItem('${task.id}', '${c.id}', event)">
+        <span>${c.text}</span>
+      </label>
+    `).join('');
+    checklistHTML = `
+      <details class="mini-checklist" onclick="event.stopPropagation()">
+        <summary>&#9745; Checklist ${doneCount}/${task.checklist.length}</summary>
+        <div class="mini-checklist-items">${itemsHTML}</div>
+      </details>
+    `;
+  }
+
   const statusKey = task.status || (task.completed ? 'done' : 'not_started');
   const statusLabels = { not_started: 'Niet gestart', in_progress: 'Bezig', done: 'Voltooid' };
 
@@ -615,12 +724,13 @@ function createTaskCard(task, isSubtask = false) {
       <span>Tijd: ${formatDuration(task.actualHours || 0)} / ${formatDuration(task.estimatedHours || 0)}</span>
       ${task.deadline ? `<span>Deadl: ${formatDisplayDate(task.deadline)}</span>` : ''}
     </div>
+    ${checklistHTML}
     <div class="task-btn-row">
       ${linkHTML}
+      ${gcalBtn}
       ${rescheduleBtn}
-      <button class="btn btn-secondary btn-xs" onclick="openTimerModal('${task.id}', event)">Focus</button>
-      <button class="btn btn-secondary btn-xs" onclick="editTask('${task.id}', event)">Bewerk</button>
-      <button class="btn btn-secondary btn-xs" onclick="deleteTask('${task.id}', event)">&times;</button>
+      <button class="btn btn-secondary btn-xs" onclick="openTimerModal('${task.id}', event)" title="Start focus-sessie">&#9201;&#65039; Focus</button>
+      <button class="btn btn-secondary btn-xs" onclick="deleteTask('${task.id}', event)" title="Taak verwijderen">&times;</button>
     </div>
   `;
 
@@ -726,8 +836,63 @@ function openNewTaskModal() {
   document.getElementById('task-status').value = 'not_started';
   document.getElementById('modal-title').textContent = 'Nieuwe taak toevoegen';
   updateParentTaskOptions();
+  editingChecklist = [];
+  renderChecklistEditor();
   taskModal.classList.remove('hidden');
 }
+
+// --- CHECKLIST-EDITOR (binnen de taak-modal) ---
+function renderChecklistEditor() {
+  const container = document.getElementById('checklist-editor-list');
+  if (!container) return;
+  container.innerHTML = '';
+
+  if (editingChecklist.length === 0) {
+    container.innerHTML = '<p class="checklist-empty-hint">Nog geen checklist-items. Voeg er hieronder een toe.</p>';
+    return;
+  }
+
+  editingChecklist.forEach((item, idx) => {
+    const row = document.createElement('div');
+    row.className = 'checklist-editor-row';
+    row.innerHTML = `
+      <label class="custom-checkbox checklist-check">
+        <input type="checkbox" ${item.done ? 'checked' : ''}>
+        <span class="checkbox-box"></span>
+      </label>
+      <span class="checklist-item-text ${item.done ? 'done' : ''}">${item.text}</span>
+      <button type="button" class="btn-close checklist-remove-btn" title="Verwijder item">&times;</button>
+    `;
+    row.querySelector('input[type="checkbox"]').addEventListener('change', (e) => {
+      editingChecklist[idx].done = e.target.checked;
+      renderChecklistEditor();
+    });
+    row.querySelector('.checklist-remove-btn').addEventListener('click', () => {
+      editingChecklist.splice(idx, 1);
+      renderChecklistEditor();
+    });
+    container.appendChild(row);
+  });
+}
+
+function addChecklistItem() {
+  const input = document.getElementById('checklist-new-item-input');
+  if (!input) return;
+  const text = input.value.trim();
+  if (!text) return;
+  editingChecklist.push({ id: 'chk_' + Date.now() + '_' + Math.floor(Math.random() * 1000), text, done: false });
+  input.value = '';
+  renderChecklistEditor();
+  input.focus();
+}
+
+document.getElementById('checklist-add-btn')?.addEventListener('click', addChecklistItem);
+document.getElementById('checklist-new-item-input')?.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    addChecklistItem();
+  }
+});
 
 document.getElementById('open-new-task-btn').onclick = openNewTaskModal;
 document.getElementById('close-task-modal').onclick = () => taskModal.classList.add('hidden');
@@ -760,6 +925,8 @@ function editTask(id, event) {
 
   updateParentTaskOptions(task.parentId || '');
   document.getElementById('modal-title').textContent = 'Taak bewerken';
+  editingChecklist = JSON.parse(JSON.stringify(task.checklist || []));
+  renderChecklistEditor();
   taskModal.classList.remove('hidden');
 }
 
@@ -785,7 +952,8 @@ document.getElementById('task-form').addEventListener('submit', async (e) => {
     isUrgent: document.getElementById('task-urgent').checked,
     isImportant: document.getElementById('task-important').checked,
     link: document.getElementById('task-link').value || null,
-    notes: document.getElementById('task-notes').value || ''
+    notes: document.getElementById('task-notes').value || '',
+    checklist: editingChecklist
   };
 
   let savedTask;
@@ -820,13 +988,28 @@ function toggleTaskStatus(id, event) {
   }
 }
 
-async function deleteTask(id, event) {
+function deleteTask(id, event) {
   event.stopPropagation();
-  if (confirm('Wil je deze taak verwijderen?')) {
-    tasks = tasks.filter(t => t.id !== id && t.parentId !== id);
-    saveTasks();
-    await deleteTaskFromCloud(id);
-  }
+  const removed = tasks.filter(t => t.id === id || t.parentId === id);
+  if (removed.length === 0) return;
+
+  tasks = tasks.filter(t => t.id !== id && t.parentId !== id);
+  saveTasks();
+
+  showUndoSnackbar(
+    removed.length > 1 ? 'Taak + subtaken verwijderd' : 'Taak verwijderd',
+    () => {
+      // Ongedaan maken: taken terugzetten, cloud wordt niet aangeraakt
+      tasks.push(...removed);
+      saveTasks();
+    },
+    async () => {
+      // Tijd verstreken zonder "ongedaan maken": nu pas echt uit de cloud wissen
+      for (const t of removed) {
+        await deleteTaskFromCloud(t.id);
+      }
+    }
+  );
 }
 
 // --- ZEN ALPINE FOCUS TIMER ---
@@ -999,10 +1182,10 @@ document.getElementById('unit-minutes-btn').onclick = () => {
 ['search-input', 'mobile-search-input'].forEach(id => {
   const el = document.getElementById(id);
   if (el) {
-    el.addEventListener('input', (e) => {
+    el.addEventListener('input', debounce((e) => {
       searchQuery = e.target.value.trim();
       renderApp();
-    });
+    }, 250));
   }
 });
 
@@ -1100,13 +1283,184 @@ document.getElementById('today-btn').onclick = () => {
 // Uitloggen / Pincode wisselen
 const logoutBtn = document.getElementById('logout-pin-btn');
 if (logoutBtn) {
-  logoutBtn.onclick = () => {
+  logoutBtn.onclick = async () => {
     if (confirm('Wil je uitloggen / van pincode wisselen op dit toestel?')) {
-      localStorage.removeItem('study_user_pin');
+      if (supabaseClient) await supabaseClient.auth.signOut();
       location.reload();
     }
   };
 }
+
+// ==========================================
+// 7. TOASTS & ONGEDAAN-MAKEN-SNACKBAR
+// ==========================================
+function showToast(message, type = 'info') {
+  let container = document.getElementById('toast-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'toast-container';
+    document.body.appendChild(container);
+  }
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${type}`;
+  toast.textContent = message;
+  container.appendChild(toast);
+
+  requestAnimationFrame(() => toast.classList.add('show'));
+  setTimeout(() => {
+    toast.classList.remove('show');
+    setTimeout(() => toast.remove(), 300);
+  }, 4000);
+}
+
+function showUndoSnackbar(message, onUndo, onConfirm) {
+  const existing = document.getElementById('undo-snackbar');
+  if (existing) existing.remove();
+
+  const bar = document.createElement('div');
+  bar.id = 'undo-snackbar';
+  bar.className = 'undo-snackbar';
+  bar.innerHTML = `<span>${message}</span><button class="undo-btn">Ongedaan maken</button>`;
+  document.body.appendChild(bar);
+  requestAnimationFrame(() => bar.classList.add('show'));
+
+  let undone = false;
+  const timeoutId = setTimeout(async () => {
+    if (!undone) await onConfirm();
+    bar.classList.remove('show');
+    setTimeout(() => bar.remove(), 300);
+  }, 5000);
+
+  bar.querySelector('.undo-btn').onclick = () => {
+    undone = true;
+    clearTimeout(timeoutId);
+    onUndo();
+    bar.classList.remove('show');
+    setTimeout(() => bar.remove(), 300);
+  };
+}
+
+// ==========================================
+// 8. DONKERE MODUS
+// ==========================================
+function applyTheme(theme) {
+  currentTheme = theme;
+  document.documentElement.setAttribute('data-theme', theme);
+  localStorage.setItem('study_theme', theme);
+  const themeBtn = document.getElementById('theme-toggle-btn');
+  if (themeBtn) themeBtn.textContent = theme === 'dark' ? '☀️' : '🌙';
+}
+
+document.getElementById('theme-toggle-btn')?.addEventListener('click', () => {
+  applyTheme(currentTheme === 'dark' ? 'light' : 'dark');
+});
+
+// ==========================================
+// 9. PWA / SERVICE WORKER (installeerbaar + offline-cache)
+// ==========================================
+function registerServiceWorker() {
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('service-worker.js').catch(err => {
+      console.warn('Service worker registratie mislukt:', err);
+    });
+  }
+}
+
+// ==========================================
+// 10. GOOGLE AGENDA & ICS-EXPORT (deadlines)
+// ==========================================
+function formatICSDate(dateStr) {
+  return dateStr.replace(/-/g, '');
+}
+
+function addOneDay(dateISO) {
+  const d = new Date(dateISO + 'T00:00:00');
+  d.setDate(d.getDate() + 1);
+  return formatDateISO(d);
+}
+
+function buildGoogleCalendarUrl(task) {
+  const startCompact = formatICSDate(task.deadline);
+  const endCompact = formatICSDate(addOneDay(task.deadline)); // Google verwacht een exclusieve einddatum
+
+  const params = new URLSearchParams({
+    action: 'TEMPLATE',
+    text: `Deadline: ${task.title}${task.course ? ' (' + task.course + ')' : ''}`,
+    dates: `${startCompact}/${endCompact}`,
+    details: task.notes || 'Toegevoegd vanuit Studieplanner'
+  });
+  return `https://calendar.google.com/calendar/render?${params.toString()}`;
+}
+
+function addTaskToGoogleCalendar(taskId, event) {
+  if (event) event.stopPropagation();
+  const task = tasks.find(t => t.id === taskId);
+  if (!task || !task.deadline) return;
+  window.open(buildGoogleCalendarUrl(task), '_blank', 'noopener');
+}
+
+function buildICSCalendar(taskList) {
+  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Studieplanner//NL'];
+  taskList.filter(t => t.deadline).forEach(t => {
+    lines.push(
+      'BEGIN:VEVENT',
+      `UID:${t.id}@studieplanner`,
+      `DTSTART;VALUE=DATE:${formatICSDate(t.deadline)}`,
+      `DTEND;VALUE=DATE:${formatICSDate(addOneDay(t.deadline))}`,
+      `SUMMARY:Deadline: ${t.title}${t.course ? ' (' + t.course + ')' : ''}`,
+      `DESCRIPTION:${(t.notes || '').replace(/\r?\n/g, '\\n')}`,
+      'END:VEVENT'
+    );
+  });
+  lines.push('END:VCALENDAR');
+  return lines.join('\r\n');
+}
+
+document.getElementById('export-ics-btn')?.addEventListener('click', () => {
+  const deadlineTasks = tasks.filter(t => t.deadline);
+  if (deadlineTasks.length === 0) {
+    showToast('Geen taken met een deadline om te exporteren.', 'info');
+    return;
+  }
+  const icsContent = buildICSCalendar(deadlineTasks);
+  const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `studieplanner_deadlines_${formatDateISO(new Date())}.ics`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  showToast('ICS-bestand gedownload. Importeer het in Google Agenda via Instellingen > Importeren en exporteren.', 'info');
+});
+
+// ==========================================
+// 11. SNELTOETSEN
+// ==========================================
+document.addEventListener('keydown', (e) => {
+  const tag = (e.target.tagName || '').toLowerCase();
+  const typing = tag === 'input' || tag === 'textarea' || tag === 'select' || e.target.isContentEditable;
+
+  if (e.key === 'Escape') {
+    document.querySelectorAll('.modal-overlay:not(.hidden), .focus-overlay:not(.hidden)').forEach(m => m.classList.add('hidden'));
+    return;
+  }
+
+  if (typing) return;
+
+  if (e.key === 'n' || e.key === 'N') {
+    e.preventDefault();
+    openNewTaskModal();
+  } else if (e.key === '/') {
+    e.preventDefault();
+    (document.getElementById('search-input') || document.getElementById('mobile-search-input'))?.focus();
+  } else if (e.key === 'ArrowLeft') {
+    document.getElementById('prev-week-btn')?.click();
+  } else if (e.key === 'ArrowRight') {
+    document.getElementById('next-week-btn')?.click();
+  }
+});
 
 // Start
 checkAuthAndInit();
