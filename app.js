@@ -1097,5 +1097,16 @@ document.getElementById('today-btn').onclick = () => {
   renderApp();
 };
 
+// Uitloggen / Pincode wisselen
+const logoutBtn = document.getElementById('logout-pin-btn');
+if (logoutBtn) {
+  logoutBtn.onclick = () => {
+    if (confirm('Wil je uitloggen / van pincode wisselen op dit toestel?')) {
+      localStorage.removeItem('study_user_pin');
+      location.reload();
+    }
+  };
+}
+
 // Start
 checkAuthAndInit();
