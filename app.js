@@ -35,6 +35,10 @@ let timerAccumulatedSeconds = 0;
 let quoteInterval = null;
 let draggedTaskId = null;
 
+let timerMode = 'free'; // 'free' (stopwatch) | 'countdown' (pomodoro-preset)
+let timerDurationSeconds = 0; // enkel relevant bij 'countdown'
+let countdownCompleted = false;
+
 const focusQuotes = [
   "\"Kalmte in het dal, helderheid op de top.\"",
   "\"Stap voor stap, zonder haast. De berg beweegt niet.\"",
@@ -1019,6 +1023,8 @@ const timerSubStatus = document.getElementById('timer-sub-status');
 const timerToggleBtn = document.getElementById('timer-toggle-btn');
 const timerSaveBtn = document.getElementById('timer-save-btn');
 const focusQuoteEl = document.getElementById('focus-quote');
+const zenFocusCardEl = document.querySelector('.zen-focus-card');
+const presetButtons = Array.from(document.querySelectorAll('.zen-preset-btn'));
 
 function setZenProgress(percent) {
   const p = Math.min(100, Math.max(0, percent));
@@ -1026,6 +1032,9 @@ function setZenProgress(percent) {
   if (circle) {
     const offset = circumference - (p / 100) * circumference;
     circle.style.strokeDashoffset = offset;
+  }
+  if (timerModal) {
+    timerModal.style.setProperty('--zen-progress', (p / 100).toFixed(3));
   }
 }
 
@@ -1035,6 +1044,58 @@ function getExactElapsedSeconds() {
   return timerAccumulatedSeconds + diffInSeconds;
 }
 
+// Speelt een zacht tweetonig belletje via Web Audio (geen externe bestanden nodig)
+function playFocusChime() {
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    const ctx = new Ctx();
+    [523.25, 659.25].forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      const startAt = ctx.currentTime + i * 0.18;
+      gain.gain.setValueAtTime(0, startAt);
+      gain.gain.linearRampToValueAtTime(0.15, startAt + 0.05);
+      gain.gain.exponentialRampToValueAtTime(0.001, startAt + 0.6);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(startAt);
+      osc.stop(startAt + 0.65);
+    });
+    setTimeout(() => ctx.close().catch(() => {}), 1500);
+  } catch (e) { /* geluid is optioneel, negeer stilzwijgend */ }
+}
+
+function updatePresetLockState() {
+  const locked = Boolean(timerStartTime) || timerAccumulatedSeconds > 0;
+  presetButtons.forEach(btn => { btn.disabled = locked; });
+}
+
+function setPresetActive(preset) {
+  presetButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.preset === preset));
+}
+
+function selectTimerPreset(preset) {
+  if (timerStartTime || timerAccumulatedSeconds > 0) return; // niet wisselen tijdens/na een lopende sessie
+  countdownCompleted = false;
+  if (preset === 'free') {
+    timerMode = 'free';
+    timerDurationSeconds = 0;
+  } else {
+    timerMode = 'countdown';
+    timerDurationSeconds = parseInt(preset, 10) * 60;
+  }
+  setPresetActive(preset);
+  timerSubStatus.textContent = 'Adem in • Focus';
+  updateTimerDisplay();
+}
+
+presetButtons.forEach(btn => {
+  btn.addEventListener('click', () => selectTimerPreset(btn.dataset.preset));
+});
+
 function openTimerModal(taskId, event) {
   if (event) event.stopPropagation();
   const task = tasks.find(t => t.id === taskId);
@@ -1043,6 +1104,12 @@ function openTimerModal(taskId, event) {
   activeTimerTaskId = taskId;
   timerStartTime = null;
   timerAccumulatedSeconds = 0;
+  timerMode = 'free';
+  timerDurationSeconds = 0;
+  countdownCompleted = false;
+  if (zenFocusCardEl) zenFocusCardEl.classList.remove('zen-complete-pulse');
+  setPresetActive('free');
+  updatePresetLockState();
 
   document.getElementById('timer-task-title').textContent = task.title;
   document.getElementById('timer-task-course').textContent = task.course || 'Rustige Focus';
@@ -1069,8 +1136,54 @@ function openTimerModal(taskId, event) {
   timerModal.classList.remove('hidden');
 }
 
+function pauseTimerInternal() {
+  if (timerStartTime) {
+    timerAccumulatedSeconds += Math.floor((Date.now() - timerStartTime) / 1000);
+    timerStartTime = null;
+  }
+  clearInterval(timerInterval);
+  timerInterval = null;
+}
+
+function handleCountdownComplete() {
+  countdownCompleted = true;
+  timerAccumulatedSeconds = timerDurationSeconds;
+  pauseTimerInternal();
+  setZenProgress(100);
+
+  timerDisplay.textContent = '00:00:00';
+  timerSubStatus.textContent = 'Sessie voltooid • Goed gedaan! 🏔️';
+  timerToggleBtn.textContent = 'Nog een ronde';
+  timerToggleBtn.classList.remove('is-running');
+  updatePresetLockState();
+
+  if (zenFocusCardEl) {
+    zenFocusCardEl.classList.remove('zen-complete-pulse');
+    void zenFocusCardEl.offsetWidth; // forceer reflow zodat de animatie herstart
+    zenFocusCardEl.classList.add('zen-complete-pulse');
+  }
+  playFocusChime();
+}
+
 function updateTimerDisplay() {
   const totalSec = getExactElapsedSeconds();
+
+  if (timerMode === 'countdown') {
+    const remaining = Math.max(0, timerDurationSeconds - totalSec);
+    const h = Math.floor(remaining / 3600).toString().padStart(2, '0');
+    const m = Math.floor((remaining % 3600) / 60).toString().padStart(2, '0');
+    const s = (remaining % 60).toString().padStart(2, '0');
+    timerDisplay.textContent = `${h}:${m}:${s}`;
+
+    const percent = timerDurationSeconds > 0 ? (totalSec / timerDurationSeconds) * 100 : 0;
+    setZenProgress(percent);
+
+    if (remaining <= 0 && !countdownCompleted && timerStartTime) {
+      handleCountdownComplete();
+    }
+    return;
+  }
+
   const h = Math.floor(totalSec / 3600).toString().padStart(2, '0');
   const m = Math.floor((totalSec % 3600) / 60).toString().padStart(2, '0');
   const s = (totalSec % 60).toString().padStart(2, '0');
@@ -1089,23 +1202,34 @@ function updateTimerDisplay() {
 
 timerToggleBtn.onclick = () => {
   if (timerStartTime) {
-    timerAccumulatedSeconds += Math.floor((Date.now() - timerStartTime) / 1000);
-    timerStartTime = null;
-    clearInterval(timerInterval);
-    timerInterval = null;
-
+    // Actief -> pauzeren
+    pauseTimerInternal();
     timerToggleBtn.textContent = 'Hervat Focus';
     timerToggleBtn.classList.remove('is-running');
     timerSubStatus.textContent = 'Even gepauzeerd';
     updateTimerDisplay();
-  } else {
+    updatePresetLockState();
+  } else if (countdownCompleted) {
+    // Nieuwe ronde met dezelfde preset-duur starten
+    countdownCompleted = false;
+    timerAccumulatedSeconds = 0;
+    if (zenFocusCardEl) zenFocusCardEl.classList.remove('zen-complete-pulse');
     timerStartTime = Date.now();
     timerInterval = setInterval(updateTimerDisplay, 250);
-
     timerToggleBtn.textContent = 'Pauzeer Sessie';
     timerToggleBtn.classList.add('is-running');
     timerSubStatus.textContent = 'In Diepe Rust';
     updateTimerDisplay();
+    updatePresetLockState();
+  } else {
+    // Starten of hervatten
+    timerStartTime = Date.now();
+    timerInterval = setInterval(updateTimerDisplay, 250);
+    timerToggleBtn.textContent = 'Pauzeer Sessie';
+    timerToggleBtn.classList.add('is-running');
+    timerSubStatus.textContent = 'In Diepe Rust';
+    updateTimerDisplay();
+    updatePresetLockState();
   }
 };
 
@@ -1150,6 +1274,10 @@ function closeTimerModalDirect() {
   quoteInterval = null;
   timerStartTime = null;
   timerAccumulatedSeconds = 0;
+  timerMode = 'free';
+  timerDurationSeconds = 0;
+  countdownCompleted = false;
+  if (zenFocusCardEl) zenFocusCardEl.classList.remove('zen-complete-pulse');
   timerModal.classList.add('hidden');
   if (document.fullscreenElement) {
     document.exitFullscreen().catch(() => {});
