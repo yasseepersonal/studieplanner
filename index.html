@@ -378,7 +378,32 @@
       </div>
     </div>
   </div>
+  <!-- Modal 4: Gewoontes / Habits Beheren -->
+  <div id="habit-modal" class="modal-overlay hidden">
+    <div class="modal-card" style="max-width: 420px;">
+      <div class="modal-header">
+        <h3>Gewoontes Beheren</h3>
+        <button id="close-habit-modal" class="btn-close">&times;</button>
+      </div>
 
+      <form id="new-habit-form" class="habit-create-form">
+        <div class="habit-input-group">
+          <input type="text" id="habit-icon-input" maxlength="2" placeholder="🏃" value="✨" style="width: 50px; text-align: center; font-size: 1.2rem;">
+          <input type="text" id="habit-title-input" placeholder="bv. 30m herhalen, Water, Lopen..." required style="flex: 1;">
+          <button type="submit" class="btn btn-primary btn-xs">+ Voeg toe</button>
+        </div>
+      </form>
+
+      <div class="habit-manage-list" id="habit-manage-list">
+        <!-- Live lijst met gewoontes om te verwijderen -->
+      </div>
+
+      <div class="modal-footer">
+        <button type="button" id="done-habit-modal-btn" class="btn btn-secondary">Klaar</button>
+      </div>
+    </div>
+  </div>
+  
   <!-- Supabase CDN & Hoofdscript -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="app.js"></script>

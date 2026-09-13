@@ -1062,3 +1062,136 @@ input:focus, select:focus, textarea:focus {
   min-height: 1em;
   margin-bottom: 8px;
 }
+/* Notitie-indicator op taakkaart */
+.task-notes-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  background: rgba(245, 158, 11, 0.15);
+  color: #b45309;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  padding: 1px 7px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: transform 0.15s ease, background-color 0.15s ease;
+}
+
+:root[data-theme="dark"] .task-notes-badge {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+  border-color: rgba(245, 158, 11, 0.4);
+}
+
+.task-notes-badge:hover {
+  transform: scale(1.05);
+  background: rgba(245, 158, 11, 0.25);
+}
+/* ============================================================
+   NOTITIE BADGE OP TAAKKAART
+   ============================================================ */
+.task-notes-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: rgba(245, 158, 11, 0.15);
+  color: #b45309;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  padding: 2px 7px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: transform 0.15s ease, background-color 0.15s ease;
+}
+
+:root[data-theme="dark"] .task-notes-badge {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+  border-color: rgba(245, 158, 11, 0.4);
+}
+
+.task-notes-badge:active { transform: scale(0.96); }
+
+/* ============================================================
+   OPTIE A: HABIT TRACKER DAG-STRIP
+   ============================================================ */
+.day-habit-strip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--bg-subtle);
+  border-bottom: 1px solid var(--border-color);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.day-habit-strip::-webkit-scrollbar { display: none; }
+
+.habit-bubble {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--bg-surface);
+  border: 1.5px solid var(--border-color);
+  cursor: pointer;
+  font-size: 0.95rem;
+  transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.habit-bubble.completed {
+  background: #10b981;
+  border-color: #059669;
+  box-shadow: 0 2px 6px rgba(16, 185, 129, 0.35);
+  transform: scale(1.08);
+}
+
+.habit-bubble-add {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  border-style: dashed;
+}
+.habit-bubble-add:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+/* Habit Beheer Modal */
+.habit-create-form { margin-bottom: 14px; }
+.habit-input-group { display: flex; gap: 6px; align-items: center; }
+.habit-manage-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.habit-manage-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  background: var(--bg-subtle);
+  border-radius: var(--radius-sm);
+  font-size: 0.88rem;
+}
+
+/* Mobiele finetuning voor touchscreens */
+@media (max-width: 768px) {
+  .day-habit-strip {
+    padding: 8px 12px;
+    gap: 8px;
+  }
+  .habit-bubble {
+    width: 36px;
+    height: 36px;
+    font-size: 1.05rem;
+  }
+}
