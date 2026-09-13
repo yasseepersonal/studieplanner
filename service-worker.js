@@ -1,7 +1,7 @@
 // Simpele "app-shell" service worker: cachet enkel de eigen bestanden
 // (HTML/CSS/JS/iconen). Taken zelf komen altijd live van Supabase —
 // die calls gaan gewoon langs deze worker heen naar het netwerk.
-const CACHE_NAME = 'studieplanner-shell-v1';
+const CACHE_NAME = 'studieplanner-shell-v2';
 const SHELL_FILES = [
   './',
   './index.html',
