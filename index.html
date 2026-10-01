@@ -30,6 +30,7 @@
         <button id="view-week-btn" class="btn-toggle">Week (Ma-Zo)</button>
         <button id="view-rolling7-btn" class="btn-toggle active">Komende 7 Dagen</button>
         <button id="view-courses-btn" class="btn-toggle">Per Vak</button>
+        <button id="view-habits-btn" class="btn-toggle">Gewoontes</button>
       </nav>
 
       <!-- Tijdseenheid Switcher -->
@@ -74,9 +75,13 @@
     <aside class="sidebar" id="sidebar-panel">
       
       <!-- Examen & Deadline Countdown Widget -->
-      <div class="sidebar-widget">
-        <div class="widget-header">
-          <h3>&#x23F3; Deadline Countdown</h3>
+      <div class="sidebar-widget" id="countdown-widget">
+        <div class="widget-header widget-header-toggle" id="countdown-widget-toggle">
+          <h3>&#x23F3; Deadlines</h3>
+          <div class="widget-header-right">
+            <span id="countdown-summary" class="widget-summary"></span>
+            <span class="widget-chevron" id="countdown-chevron">&#9662;</span>
+          </div>
         </div>
         <div id="countdown-list" class="countdown-list"></div>
       </div>
@@ -117,6 +122,27 @@
         </div>
         <div class="courses-grid" id="courses-grid"></div>
       </div>
+
+      <!-- 3. Gewoontes / Habits Streaks Overzicht -->
+      <div class="habits-view hidden" id="habits-view">
+        <div class="habits-header">
+          <div>
+            <h2>Dagelijkse Gewoontes</h2>
+            <p class="text-muted">Jouw streaks in één overzicht.</p>
+          </div>
+          <button type="button" class="btn btn-secondary btn-xs" onclick="openHabitModal()">&#9881;&#65039; Beheer gewoontes</button>
+        </div>
+        <div class="habits-table-wrap">
+          <table class="habits-table" id="habits-table">
+            <thead id="habits-table-head"></thead>
+            <tbody id="habits-table-body"></tbody>
+          </table>
+        </div>
+        <div class="habits-empty-state hidden" id="habits-empty-state">
+          <p class="text-muted">Je hebt nog geen gewoontes toegevoegd.</p>
+          <button type="button" class="btn btn-primary btn-xs" onclick="openHabitModal()">+ Eerste gewoonte toevoegen</button>
+        </div>
+      </div>
     </section>
   </main>
 
@@ -133,6 +159,10 @@
     <button class="nav-tab" data-tab="courses">
       <span class="nav-icon">📚</span>
       <span class="nav-label">Vakken</span>
+    </button>
+    <button class="nav-tab" data-tab="habits">
+      <span class="nav-icon">🔥</span>
+      <span class="nav-label">Gewoontes</span>
     </button>
     <button class="nav-tab" id="quick-add-mobile-btn">
       <span class="nav-icon-plus">＋</span>
@@ -190,7 +220,8 @@
         <div class="form-row">
           <div class="form-group">
             <label for="task-course">Vak / Categorie</label>
-            <input type="text" id="task-course" placeholder="bijv. Statistiek of Logistiek">
+            <input type="text" id="task-course" list="task-course-options" placeholder="Kies of typ een nieuw vak..." autocomplete="off">
+            <datalist id="task-course-options"></datalist>
           </div>
           <div class="form-group">
             <label for="task-duration-input">Geschatte duur</label>
@@ -400,6 +431,29 @@
 
       <div class="modal-footer">
         <button type="button" id="done-habit-modal-btn" class="btn btn-secondary">Klaar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 5: Gewoonte Maandoverzicht -->
+  <div id="habit-month-modal" class="modal-overlay hidden">
+    <div class="modal-card" style="max-width: 400px;">
+      <div class="modal-header">
+        <h3 id="habit-month-title">Maandoverzicht</h3>
+        <button id="close-habit-month-modal" class="btn-close">&times;</button>
+      </div>
+      <div class="habit-month-nav">
+        <button type="button" id="habit-month-prev-btn" class="btn btn-secondary btn-xs">&#8592;</button>
+        <span id="habit-month-label" class="habit-month-label"></span>
+        <button type="button" id="habit-month-next-btn" class="btn btn-secondary btn-xs">&#8594;</button>
+      </div>
+      <div class="habit-month-weekdays">
+        <span>M</span><span>D</span><span>W</span><span>D</span><span>V</span><span>Z</span><span>Z</span>
+      </div>
+      <div class="habit-month-grid" id="habit-month-grid"></div>
+      <div class="habit-month-stats" id="habit-month-stats"></div>
+      <div class="modal-footer">
+        <button type="button" id="close-habit-month-modal-2" class="btn btn-secondary">Sluiten</button>
       </div>
     </div>
   </div>

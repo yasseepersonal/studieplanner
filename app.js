@@ -358,6 +358,10 @@ function setupMobileTabs() { //[cite: 1]
           sidebar.style.display = 'none'; //[cite: 1]
           content.style.display = 'block'; //[cite: 1]
           setActiveView('courses'); //[cite: 1]
+        } else if (target === 'habits') {
+          sidebar.style.display = 'none';
+          content.style.display = 'block';
+          setActiveView('habits');
         } else { //[cite: 1]
           sidebar.style.display = 'none'; //[cite: 1]
           content.style.display = 'block'; //[cite: 1]
@@ -382,6 +386,7 @@ function setupMobileTabs() { //[cite: 1]
 function renderApp() { //[cite: 1]
   const weekGrid = document.getElementById('week-grid'); //[cite: 1]
   const coursesView = document.getElementById('courses-view'); //[cite: 1]
+  const habitsView = document.getElementById('habits-view');
   const navGroup = document.getElementById('nav-arrows-group'); //[cite: 1]
 
   document.getElementById('unit-hours-btn').classList.toggle('active', timeUnit === 'hours'); //[cite: 1]
@@ -393,11 +398,20 @@ function renderApp() { //[cite: 1]
   if (currentView === 'courses') { //[cite: 1]
     weekGrid.classList.add('hidden'); //[cite: 1]
     coursesView.classList.remove('hidden'); //[cite: 1]
+    habitsView.classList.add('hidden');
     navGroup.classList.add('hidden'); //[cite: 1]
     document.getElementById('current-week-label').textContent = 'Vakken & Categorieën'; //[cite: 1]
     renderCoursesView(); //[cite: 1]
+  } else if (currentView === 'habits') {
+    weekGrid.classList.add('hidden');
+    coursesView.classList.add('hidden');
+    habitsView.classList.remove('hidden');
+    navGroup.classList.add('hidden');
+    document.getElementById('current-week-label').textContent = 'Dagelijkse Gewoontes';
+    renderHabitsView();
   } else { //[cite: 1]
     coursesView.classList.add('hidden'); //[cite: 1]
+    habitsView.classList.add('hidden');
     weekGrid.classList.remove('hidden'); //[cite: 1]
     navGroup.classList.remove('hidden'); //[cite: 1]
     renderCalendarGrid(); //[cite: 1]
@@ -409,6 +423,7 @@ function renderApp() { //[cite: 1]
 
 function renderCountdownWidget() { //[cite: 1]
   const container = document.getElementById('countdown-list'); //[cite: 1]
+  const summaryEl = document.getElementById('countdown-summary');
   container.innerHTML = ''; //[cite: 1]
 
   const today = new Date(); //[cite: 1]
@@ -421,8 +436,16 @@ function renderCountdownWidget() { //[cite: 1]
 
   if (upcomingDeadlines.length === 0) { //[cite: 1]
     container.innerHTML = '<span style="font-size:0.75rem; color:var(--text-muted)">Geen actieve deadlines</span>'; //[cite: 1]
+    if (summaryEl) summaryEl.textContent = 'Geen';
     return; //[cite: 1]
   } //[cite: 1]
+
+  if (summaryEl) {
+    const first = upcomingDeadlines[0];
+    const firstDays = Math.ceil((new Date(first.deadline + 'T00:00:00') - today) / (1000 * 60 * 60 * 24));
+    const soonText = firstDays < 0 ? `${Math.abs(firstDays)}d te laat` : firstDays === 0 ? 'vandaag' : `over ${firstDays}d`;
+    summaryEl.textContent = `${upcomingDeadlines.length} • eerste ${soonText}`;
+  }
 
   upcomingDeadlines.forEach(task => { //[cite: 1]
     const dDate = new Date(task.deadline + 'T00:00:00'); //[cite: 1]
@@ -454,6 +477,25 @@ function renderCountdownWidget() { //[cite: 1]
   }); //[cite: 1]
 } //[cite: 1]
 
+// --- Inklapbare deadline-widget (standaard ingeklapt, zodat de inbox meer ruimte krijgt) ---
+const countdownWidgetEl = document.getElementById('countdown-widget');
+const countdownToggleEl = document.getElementById('countdown-widget-toggle');
+
+function setCountdownWidgetCollapsed(collapsed) {
+  if (!countdownWidgetEl) return;
+  countdownWidgetEl.classList.toggle('collapsed', collapsed);
+  localStorage.setItem('study_countdown_collapsed', collapsed ? '1' : '0');
+}
+
+if (countdownToggleEl) {
+  countdownToggleEl.addEventListener('click', () => {
+    const isCollapsed = countdownWidgetEl.classList.contains('collapsed');
+    setCountdownWidgetCollapsed(!isCollapsed);
+  });
+}
+
+setCountdownWidgetCollapsed(localStorage.getItem('study_countdown_collapsed') !== '0');
+
 function updateFilterOptions() { //[cite: 1]
   const selects = [document.getElementById('course-filter-select'), document.getElementById('mobile-course-filter-select')]; //[cite: 1]
   const courses = Array.from(new Set(tasks.map(t => t.course ? t.course.trim() : '').filter(Boolean))).sort(); //[cite: 1]
@@ -470,6 +512,16 @@ function updateFilterOptions() { //[cite: 1]
       select.appendChild(opt); //[cite: 1]
     }); //[cite: 1]
   }); //[cite: 1]
+
+  const courseDatalist = document.getElementById('task-course-options');
+  if (courseDatalist) {
+    courseDatalist.innerHTML = '';
+    courses.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c;
+      courseDatalist.appendChild(opt);
+    });
+  }
 } //[cite: 1]
 
 function renderCalendarGrid() { //[cite: 1]
@@ -834,6 +886,192 @@ function renderHabitManageList() {
     `;
     container.appendChild(row);
   });
+}
+
+// --- GEWOONTES: STREAK-BEREKENINGEN & OVERZICHTSTABEL ---
+function getHabitLogDates(habitId) {
+  return new Set(habitLogs.filter(l => l.habit_id === habitId).map(l => l.date));
+}
+
+function calculateHabitCurrentStreak(habitId) {
+  const dates = getHabitLogDates(habitId);
+  let streak = 0;
+  const cursor = new Date();
+  cursor.setHours(0, 0, 0, 0);
+  // Als vandaag nog niet is afgevinkt, telt de streak nog vanaf gisteren mee
+  if (!dates.has(formatDateISO(cursor))) {
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  while (dates.has(formatDateISO(cursor))) {
+    streak++;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return streak;
+}
+
+function calculateHabitLongestStreak(habitId) {
+  const sortedDates = Array.from(getHabitLogDates(habitId)).sort();
+  if (sortedDates.length === 0) return 0;
+  let longest = 1;
+  let current = 1;
+  for (let i = 1; i < sortedDates.length; i++) {
+    const prev = new Date(sortedDates[i - 1] + 'T00:00:00');
+    const curr = new Date(sortedDates[i] + 'T00:00:00');
+    const diffDays = Math.round((curr - prev) / 86400000);
+    current = diffDays === 1 ? current + 1 : 1;
+    longest = Math.max(longest, current);
+  }
+  return longest;
+}
+
+function renderHabitsView() {
+  const thead = document.getElementById('habits-table-head');
+  const tbody = document.getElementById('habits-table-body');
+  const tableWrap = document.querySelector('.habits-table-wrap');
+  const emptyState = document.getElementById('habits-empty-state');
+  if (!tbody || !thead) return;
+
+  if (habits.length === 0) {
+    tableWrap.classList.add('hidden');
+    emptyState.classList.remove('hidden');
+    return;
+  }
+  tableWrap.classList.remove('hidden');
+  emptyState.classList.add('hidden');
+
+  // Kolommen = habits
+  const headRow = document.createElement('tr');
+  headRow.innerHTML = `<th class="habit-day-header-cell">Dag</th>` + habits.map(h => {
+    const streak = calculateHabitCurrentStreak(h.id);
+    return `
+      <th class="habit-col-header">
+        <div class="habit-col-header-top">
+          <span class="habit-icon">${h.icon || '✨'}</span>
+          <button type="button" class="habit-month-btn" title="Maandoverzicht" onclick="openHabitMonthModal('${h.id}')">&#128197;</button>
+        </div>
+        <div class="habit-col-name">${h.title}</div>
+        <div class="habit-col-streak ${streak > 0 ? 'active' : ''}">${streak > 0 ? '🔥' : ''}${streak}d</div>
+      </th>
+    `;
+  }).join('');
+  thead.innerHTML = '';
+  thead.appendChild(headRow);
+
+  // Rijen = dagen (laatste 7 dagen, vandaag onderaan)
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayISO = formatDateISO(today);
+
+  tbody.innerHTML = '';
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const iso = formatDateISO(d);
+    const isToday = iso === todayISO;
+    const dayLabel = d.toLocaleDateString('nl-BE', { weekday: 'short' });
+    const dateLabel = d.toLocaleDateString('nl-BE', { day: 'numeric', month: 'numeric' });
+
+    const row = document.createElement('tr');
+    row.className = isToday ? 'habit-row-today' : '';
+    const cells = habits.map(h => {
+      const done = getHabitLogDates(h.id).has(iso);
+      return `<td><button type="button" class="habit-day-dot ${done ? 'done' : ''}" onclick="toggleHabitLogAndRefresh('${h.id}', '${iso}')">${done ? '&#10003;' : ''}</button></td>`;
+    }).join('');
+
+    row.innerHTML = `
+      <td class="habit-day-header-cell">${isToday ? 'Vandaag' : `${dayLabel} ${dateLabel}`}</td>
+      ${cells}
+    `;
+    tbody.appendChild(row);
+  }
+}
+
+function toggleHabitLogAndRefresh(habitId, dateStr) {
+  toggleHabitLog(habitId, dateStr);
+  renderHabitsView();
+  if (!habitMonthModal.classList.contains('hidden')) renderHabitMonthGrid();
+}
+
+// --- GEWOONTES: MAANDOVERZICHT PER HABIT ---
+let habitMonthHabitId = null;
+let habitMonthDate = new Date();
+const habitMonthModal = document.getElementById('habit-month-modal');
+
+function openHabitMonthModal(habitId) {
+  habitMonthHabitId = habitId;
+  habitMonthDate = new Date();
+  habitMonthDate.setDate(1);
+  renderHabitMonthGrid();
+  habitMonthModal.classList.remove('hidden');
+}
+
+function closeHabitMonthModal() {
+  habitMonthModal.classList.add('hidden');
+  habitMonthHabitId = null;
+}
+
+document.getElementById('close-habit-month-modal')?.addEventListener('click', closeHabitMonthModal);
+document.getElementById('close-habit-month-modal-2')?.addEventListener('click', closeHabitMonthModal);
+document.getElementById('habit-month-prev-btn')?.addEventListener('click', () => {
+  habitMonthDate.setMonth(habitMonthDate.getMonth() - 1);
+  renderHabitMonthGrid();
+});
+document.getElementById('habit-month-next-btn')?.addEventListener('click', () => {
+  habitMonthDate.setMonth(habitMonthDate.getMonth() + 1);
+  renderHabitMonthGrid();
+});
+
+function renderHabitMonthGrid() {
+  const habit = habits.find(h => h.id === habitMonthHabitId);
+  if (!habit) return;
+
+  document.getElementById('habit-month-title').textContent = `${habit.icon || '✨'} ${habit.title}`;
+  document.getElementById('habit-month-label').textContent =
+    habitMonthDate.toLocaleDateString('nl-BE', { month: 'long', year: 'numeric' });
+
+  const year = habitMonthDate.getFullYear();
+  const month = habitMonthDate.getMonth();
+  const firstOfMonth = new Date(year, month, 1);
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  // Maandag = 0 ... Zondag = 6
+  const leadingBlanks = (firstOfMonth.getDay() + 6) % 7;
+
+  const doneDates = getHabitLogDates(habit.id);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayISO = formatDateISO(today);
+
+  const grid = document.getElementById('habit-month-grid');
+  grid.innerHTML = '';
+
+  for (let i = 0; i < leadingBlanks; i++) {
+    const blank = document.createElement('div');
+    blank.className = 'habit-month-cell empty';
+    grid.appendChild(blank);
+  }
+
+  let completedCount = 0;
+  for (let day = 1; day <= daysInMonth; day++) {
+    const cellDate = new Date(year, month, day);
+    const iso = formatDateISO(cellDate);
+    const done = doneDates.has(iso);
+    if (done) completedCount++;
+    const isToday = iso === todayISO;
+    const isFuture = cellDate > today;
+
+    const cell = document.createElement('button');
+    cell.type = 'button';
+    cell.className = `habit-month-cell ${done ? 'done' : ''} ${isToday ? 'is-today' : ''} ${isFuture ? 'is-future' : ''}`;
+    cell.textContent = day;
+    cell.disabled = isFuture;
+    if (!isFuture) {
+      cell.onclick = () => toggleHabitLogAndRefresh(habit.id, iso);
+    }
+    grid.appendChild(cell);
+  }
+
+  document.getElementById('habit-month-stats').textContent =
+    `${completedCount}x voltooid deze maand • huidige streak ${calculateHabitCurrentStreak(habit.id)}d • langste streak ${calculateHabitLongestStreak(habit.id)}d`;
 }
 
 // --- DRAG & DROP LOGICA ---
@@ -1453,12 +1691,14 @@ document.getElementById('import-json-input').addEventListener('change', (e) => {
 const btnWeek = document.getElementById('view-week-btn'); //[cite: 1]
 const btnRolling7 = document.getElementById('view-rolling7-btn'); //[cite: 1]
 const btnCourses = document.getElementById('view-courses-btn'); //[cite: 1]
+const btnHabits = document.getElementById('view-habits-btn');
 
 function setActiveView(view) { //[cite: 1]
   currentView = view; //[cite: 1]
   if (btnWeek) btnWeek.classList.toggle('active', view === 'week'); //[cite: 1]
   if (btnRolling7) btnRolling7.classList.toggle('active', view === 'rolling7'); //[cite: 1]
   if (btnCourses) btnCourses.classList.toggle('active', view === 'courses'); //[cite: 1]
+  if (btnHabits) btnHabits.classList.toggle('active', view === 'habits');
 
   if (view === 'rolling7') { //[cite: 1]
     rollingStartDate = new Date(); //[cite: 1]
@@ -1470,6 +1710,7 @@ function setActiveView(view) { //[cite: 1]
 if (btnWeek) btnWeek.onclick = () => setActiveView('week'); //[cite: 1]
 if (btnRolling7) btnRolling7.onclick = () => setActiveView('rolling7'); //[cite: 1]
 if (btnCourses) btnCourses.onclick = () => setActiveView('courses'); //[cite: 1]
+if (btnHabits) btnHabits.onclick = () => setActiveView('habits');
 
 document.getElementById('prev-week-btn').onclick = () => { //[cite: 1]
   if (currentView === 'week') currentWeekMonday.setDate(currentWeekMonday.getDate() - 7); //[cite: 1]
