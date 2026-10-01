@@ -191,6 +191,18 @@ async function deleteTaskFromCloud(taskId) { //[cite: 1]
   if (error) console.error("Fout bij verwijderen:", error); //[cite: 1]
 } //[cite: 1]
 
+// Ververs alles wat habits toont, afhankelijk van de actieve weergave
+function habitEsc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function refreshHabitUI() {
+  if (currentView === 'habits') renderHabitsView();
+  else if (currentView !== 'courses') renderCalendarGrid();
+  const modal = document.getElementById('habit-month-modal');
+  if (modal && !modal.classList.contains('hidden') && typeof renderHabitMonthGrid === 'function') renderHabitMonthGrid();
+}
+
 // Habits ophalen en opslaan
 async function fetchHabitsFromCloud() {
   if (!supabaseClient) return;
@@ -201,7 +213,7 @@ async function fetchHabitsFromCloud() {
     ]);
     if (hRes.data) habits = hRes.data;
     if (lRes.data) habitLogs = lRes.data;
-    renderCalendarGrid(); //[cite: 1]
+    refreshHabitUI();
   } catch (err) {
     console.error("Fout bij ophalen habits:", err);
   }
@@ -212,14 +224,14 @@ async function toggleHabitLog(habitId, dateStr) {
   if (existingIdx !== -1) {
     const toDelete = habitLogs[existingIdx];
     habitLogs.splice(existingIdx, 1);
-    renderCalendarGrid(); //[cite: 1]
+    refreshHabitUI();
     if (supabaseClient) {
       await supabaseClient.from('habit_logs').delete().eq('id', toDelete.id);
     }
   } else {
     const newLog = { id: 'log_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4), habit_id: habitId, date: dateStr };
     habitLogs.push(newLog);
-    renderCalendarGrid(); //[cite: 1]
+    refreshHabitUI();
     if (supabaseClient) {
       await supabaseClient.from('habit_logs').insert([newLog]);
     }
@@ -233,7 +245,7 @@ async function createNewHabit(title, icon) {
     icon: icon.trim() || '✨'
   };
   habits.push(newHabit);
-  renderCalendarGrid(); //[cite: 1]
+  refreshHabitUI();
   renderHabitManageList();
   if (supabaseClient) {
     await supabaseClient.from('habits').insert([newHabit]);
@@ -243,7 +255,7 @@ async function createNewHabit(title, icon) {
 async function deleteHabit(habitId) {
   habits = habits.filter(h => h.id !== habitId);
   habitLogs = habitLogs.filter(l => l.habit_id !== habitId);
-  renderCalendarGrid(); //[cite: 1]
+  refreshHabitUI();
   renderHabitManageList();
   if (supabaseClient) {
     await supabaseClient.from('habits').delete().eq('id', habitId);
@@ -394,6 +406,7 @@ function renderApp() { //[cite: 1]
 
   updateFilterOptions(); //[cite: 1]
   renderCountdownWidget(); //[cite: 1]
+  document.getElementById('mobile-day-selector')?.classList.toggle('hidden', currentView === 'courses' || currentView === 'habits');
 
   if (currentView === 'courses') { //[cite: 1]
     weekGrid.classList.add('hidden'); //[cite: 1]
@@ -567,9 +580,11 @@ function renderCalendarGrid() { //[cite: 1]
     const isSelectedOnMobile = dayISO === mobileSelectedDate; //[cite: 1]
 
     // Habit Dag-Strip opbouwen
+    const habitDoneCount = habits.filter(h => habitLogs.some(l => l.habit_id === h.id && l.date === dayISO)).length;
     const habitBubblesHTML = habits.map(h => {
       const isCompleted = habitLogs.some(l => l.habit_id === h.id && l.date === dayISO);
-      return `<button type="button" class="habit-bubble ${isCompleted ? 'completed' : ''}" title="${h.title}" onclick="toggleHabitLog('${h.id}', '${dayISO}')">${h.icon || '✨'}</button>`;
+      const t = habitEsc(h.title);
+      return `<button type="button" class="habit-bubble ${isCompleted ? 'completed' : ''}" title="${t}" aria-pressed="${isCompleted}" onclick="toggleHabitLog('${h.id}', '${dayISO}')"><span class="habit-bubble-icon">${habitEsc(h.icon) || '✨'}</span><span class="habit-bubble-label">${t}</span></button>`;
     }).join('');
 
     const dayCol = document.createElement('div'); //[cite: 1]
@@ -586,8 +601,11 @@ function renderCalendarGrid() { //[cite: 1]
         </div>
       </div>
       <div class="day-habit-strip">
-        ${habitBubblesHTML}
-        <button type="button" class="habit-bubble habit-bubble-add" onclick="openHabitModal()" title="Gewoontes beheren">＋</button>
+        <div class="day-habit-head"><span>🔥 Gewoontes</span><span class="day-habit-count">${habitDoneCount}/${habits.length}</span></div>
+        <div class="day-habit-bubbles">
+          ${habitBubblesHTML}
+          <button type="button" class="habit-bubble habit-bubble-add" onclick="openHabitModal()" title="Gewoontes beheren">＋</button>
+        </div>
       </div>
       <div class="task-list dropzone" id="day-list-${dayISO}" data-date="${dayISO}"></div>
     `; //[cite: 1]
@@ -931,13 +949,17 @@ function renderHabitsView() {
   const emptyState = document.getElementById('habits-empty-state');
   if (!tbody || !thead) return;
 
+  const mobileWrap = document.getElementById('habit-mobile');
   if (habits.length === 0) {
     tableWrap.classList.add('hidden');
+    if (mobileWrap) mobileWrap.classList.add('hidden');
     emptyState.classList.remove('hidden');
     return;
   }
   tableWrap.classList.remove('hidden');
+  if (mobileWrap) mobileWrap.classList.remove('hidden');
   emptyState.classList.add('hidden');
+  renderHabitCards();
 
   // Kolommen = habits
   const headRow = document.createElement('tr');
@@ -984,6 +1006,55 @@ function renderHabitsView() {
     `;
     tbody.appendChild(row);
   }
+}
+
+// Mobiele kaartweergave: samenvatting van vandaag + 1 kaart per gewoonte met 7 aanklikbare dagen
+function renderHabitCards() {
+  const wrap = document.getElementById('habit-mobile');
+  if (!wrap) return;
+  const todayISO = formatDateISO(new Date());
+  const doneToday = habits.filter(h => getHabitLogDates(h.id).has(todayISO)).length;
+  const pct = habits.length ? Math.round((doneToday / habits.length) * 100) : 0;
+  const msg = doneToday === habits.length ? '🎉 Alles gedaan vandaag!' : 'gedaan vandaag';
+
+  const days = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() - i);
+    days.push(d);
+  }
+
+  const cards = habits.map(h => {
+    const dates = getHabitLogDates(h.id);
+    const streak = calculateHabitCurrentStreak(h.id);
+    const weekDone = days.filter(d => dates.has(formatDateISO(d))).length;
+    const dots = days.map(d => {
+      const iso = formatDateISO(d);
+      const done = dates.has(iso);
+      const lbl = d.toLocaleDateString('nl-BE', { weekday: 'short' }).replace('.', '').slice(0, 2);
+      return `<button type="button" class="hm-day ${done ? 'done' : ''} ${iso === todayISO ? 'today' : ''}" aria-pressed="${done}" onclick="toggleHabitLogAndRefresh('${h.id}', '${iso}')"><span class="hm-day-label">${lbl}</span><span class="hm-day-dot">${done ? '&#10003;' : d.getDate()}</span></button>`;
+    }).join('');
+    return `
+      <div class="hm-card">
+        <div class="hm-card-top">
+          <span class="hm-icon">${habitEsc(h.icon) || '✨'}</span>
+          <div class="hm-info">
+            <div class="hm-title">${habitEsc(h.title)}</div>
+            <div class="hm-meta">${weekDone}/7 deze week</div>
+          </div>
+          <span class="hm-streak ${streak > 0 ? 'active' : ''}">🔥 ${streak}d</span>
+          <button type="button" class="hm-cal" title="Maandoverzicht" onclick="openHabitMonthModal('${h.id}')">&#128197;</button>
+        </div>
+        <div class="hm-days">${dots}</div>
+      </div>`;
+  }).join('');
+
+  wrap.innerHTML = `
+    <div class="hm-summary">
+      <div class="hm-summary-text"><strong>${doneToday}/${habits.length}</strong> ${msg}</div>
+      <div class="hm-bar"><div class="hm-bar-fill" style="width:${pct}%"></div></div>
+    </div>` + cards;
 }
 
 function toggleHabitLogAndRefresh(habitId, dateStr) {

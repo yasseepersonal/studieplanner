@@ -1354,3 +1354,90 @@ input:focus, select:focus, textarea:focus {
     font-size: 1.05rem;
   }
 }
+
+/* ============================================================
+   HABITS v2: dag-strip, mobiele pillen & kaartweergave
+   ============================================================ */
+.day-header { flex-shrink: 0; }
+.day-habit-strip { display: block; flex-shrink: 0; overflow: visible; }
+.day-habit-head { display: none; }
+.day-habit-bubbles { display: flex; align-items: center; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+.day-habit-bubbles::-webkit-scrollbar { display: none; }
+.habit-bubble-label { display: none; }
+.habit-mobile { display: none; }
+.mobile-day-selector.hidden { display: none !important; }
+
+@media (max-width: 768px) {
+  /* Dag-strip: wrap-pillen met naam, goed aanraakbaar */
+  .day-habit-strip { padding: 10px 12px 12px; }
+  .day-habit-head {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 0.76rem; font-weight: 700; color: var(--text-muted); margin-bottom: 8px;
+  }
+  .day-habit-count {
+    background: var(--bg-surface); border: 1px solid var(--border-color);
+    border-radius: 999px; padding: 1px 9px;
+  }
+  .day-habit-bubbles { flex-wrap: wrap; overflow: visible; gap: 8px; }
+  .habit-bubble {
+    width: auto; height: 40px; padding: 0 14px 0 10px; gap: 6px;
+    border-radius: 999px; font-size: 1.05rem; font-family: inherit;
+  }
+  .habit-bubble.completed { transform: none; color: #ffffff; }
+  .habit-bubble:active { transform: scale(0.95); }
+  .habit-bubble-label {
+    display: inline; font-size: 0.8rem; font-weight: 600; color: var(--text-main);
+    max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .habit-bubble.completed .habit-bubble-label { color: #ffffff; }
+  .habit-bubble-add { width: 40px; padding: 0; justify-content: center; }
+
+  /* Gewoontes-overzicht: kaarten i.p.v. brede tabel */
+  .habits-table-wrap { display: none; }
+  .habit-mobile { display: flex; flex-direction: column; gap: 10px; }
+
+  .hm-summary {
+    background: linear-gradient(135deg, var(--primary), #7c3aed);
+    color: #ffffff; border-radius: var(--radius-lg); padding: 14px 16px; box-shadow: var(--shadow-md);
+  }
+  .hm-summary-text { font-size: 0.9rem; margin-bottom: 10px; }
+  .hm-summary-text strong { font-size: 1.4rem; margin-right: 4px; }
+  .hm-bar { height: 8px; background: rgba(255, 255, 255, 0.25); border-radius: 999px; overflow: hidden; }
+  .hm-bar-fill { height: 100%; background: #ffffff; border-radius: 999px; transition: width 0.3s ease; }
+
+  .hm-card {
+    background: var(--bg-surface); border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg); padding: 12px; box-shadow: var(--shadow-sm);
+  }
+  .hm-card-top { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .hm-icon {
+    width: 40px; height: 40px; border-radius: 12px; background: var(--primary-light);
+    display: flex; align-items: center; justify-content: center; font-size: 1.3rem; flex-shrink: 0;
+  }
+  .hm-info { flex: 1; min-width: 0; }
+  .hm-title { font-weight: 700; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hm-meta { font-size: 0.74rem; color: var(--text-muted); }
+  .hm-streak {
+    font-size: 0.76rem; font-weight: 700; color: var(--text-muted);
+    background: var(--bg-subtle); border-radius: 999px; padding: 3px 9px; white-space: nowrap;
+  }
+  .hm-streak.active { color: #c2540a; background: rgba(245, 158, 11, 0.15); }
+  .hm-cal { background: none; border: none; font-size: 1.15rem; padding: 6px; cursor: pointer; }
+
+  .hm-days { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+  .hm-day {
+    background: none; border: none; padding: 0; cursor: pointer; font-family: inherit;
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+  }
+  .hm-day-label { font-size: 0.66rem; font-weight: 600; color: var(--text-muted); text-transform: capitalize; }
+  .hm-day.today .hm-day-label { color: var(--primary); font-weight: 700; }
+  .hm-day-dot {
+    width: min(38px, 100%); aspect-ratio: 1; border-radius: 50%;
+    border: 1.5px solid var(--border-color); background: var(--bg-subtle); color: var(--text-muted);
+    font-size: 0.8rem; font-weight: 700; display: flex; align-items: center; justify-content: center;
+    transition: transform 0.15s ease, background 0.15s ease;
+  }
+  .hm-day.today .hm-day-dot { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-light); }
+  .hm-day.done .hm-day-dot { background: #10b981; border-color: #059669; color: #ffffff; }
+  .hm-day:active .hm-day-dot { transform: scale(0.88); }
+}
