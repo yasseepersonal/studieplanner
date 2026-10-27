@@ -1,7 +1,6 @@
-// Simpele "app-shell" service worker: cachet enkel de eigen bestanden
-// (HTML/CSS/JS/iconen). Taken zelf komen altijd live van Supabase —
-// die calls gaan gewoon langs deze worker heen naar het netwerk.
-const CACHE_NAME = 'studieplanner-shell-v2';
+// Simpele "app-shell" service worker: network-first voor eigen bestanden,
+// cache enkel als terugval wanneer je offline bent. Supabase e.d. gaan altijd rechtstreeks naar het netwerk.
+const CACHE_NAME = 'studieplanner-shell-v3'; // verhoog bij elke release
 const SHELL_FILES = [
   './',
   './index.html',
@@ -13,7 +12,9 @@ const SHELL_FILES = [
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL_FILES))
+    caches.open(CACHE_NAME).then((cache) =>
+      Promise.allSettled(SHELL_FILES.map((f) => cache.add(f)))
+    )
   );
   self.skipWaiting();
 });
@@ -28,24 +29,19 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
+  if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
-
-  // Laat alles wat niet van onze eigen origin komt (Supabase, Google Fonts, CDN's)
-  // gewoon rechtstreeks naar het netwerk gaan — nooit cachen.
   if (url.origin !== self.location.origin) return;
 
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      return (
-        cached ||
-        fetch(event.request)
-          .then((response) => {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-            return response;
-          })
-          .catch(() => cached)
-      );
-    })
+    fetch(event.request)
+      .then((response) => {
+        if (response.ok) {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+        }
+        return response;
+      })
+      .catch(() => caches.match(event.request))
   );
 });

@@ -183,18 +183,30 @@ async function saveTaskToCloud(task) {
     checklist: Array.isArray(task.checklist) ? task.checklist : []
   };
 
-  const { error } = await supabaseClient.from('tasks').upsert(dbRecord);
-  if (error) {
+  const { data, error } = await supabaseClient.from('tasks').upsert(dbRecord).select('id');
+  if (error || !data || data.length === 0) {
     console.error("Fout bij opslaan taak:", error);
-    showToast('Opslaan mislukt: ' + error.message, 'error');
+    showToast('Opslaan mislukt: ' + (error?.message || 'geen rechten (RLS)'), 'error');
+    await fetchTasksFromCloud(); // toon wat er echt in de database staat
+    return false;
   }
+  return true;
 }
 
-async function deleteTaskFromCloud(taskId) { //[cite: 1]
-  if (!supabaseClient) return; //[cite: 1]
-  const { error } = await supabaseClient.from('tasks').delete().eq('id', taskId); //[cite: 1]
-  if (error) console.error("Fout bij verwijderen:", error); //[cite: 1]
-} //[cite: 1]
+async function deleteTaskFromCloud(taskId) {
+  if (!supabaseClient) return false;
+  const { data, error } = await supabaseClient.from('tasks').delete().eq('id', taskId).select('id');
+  if (error) {
+    console.error("Fout bij verwijderen:", error);
+    showToast('Verwijderen mislukt: ' + error.message, 'error');
+    return false;
+  }
+  if (!data || data.length === 0) {
+    showToast('Verwijderen mislukt: geen rechten of taak niet gevonden.', 'error');
+    return false;
+  }
+  return true;
+}
 
 // Ververs alles wat habits toont, afhankelijk van de actieve weergave
 function habitEsc(s) {
@@ -1403,27 +1415,33 @@ function toggleTaskStatus(id, event) { //[cite: 1]
   } //[cite: 1]
 } //[cite: 1]
 
-function deleteTask(id, event) { //[cite: 1]
-  event.stopPropagation(); //[cite: 1]
-  const removed = tasks.filter(t => t.id === id || t.parentId === id); //[cite: 1]
-  if (removed.length === 0) return; //[cite: 1]
+async function deleteTask(id, event) {
+  event.stopPropagation();
+  const removed = tasks.filter(t => t.id === id || t.parentId === id);
+  if (removed.length === 0) return;
 
-  tasks = tasks.filter(t => t.id !== id && t.parentId !== id); //[cite: 1]
-  saveTasks(); //[cite: 1]
+  tasks = tasks.filter(t => t.id !== id && t.parentId !== id);
+  saveTasks();
 
-  showUndoSnackbar( //[cite: 1]
-    removed.length > 1 ? 'Taak + subtaken verwijderd' : 'Taak verwijderd', //[cite: 1]
-    () => { //[cite: 1]
-      tasks.push(...removed); //[cite: 1]
-      saveTasks(); //[cite: 1]
-    }, //[cite: 1]
-    async () => { //[cite: 1]
-      for (const t of removed) { //[cite: 1]
-        await deleteTaskFromCloud(t.id); //[cite: 1]
-      } //[cite: 1]
-    } //[cite: 1]
-  ); //[cite: 1]
-} //[cite: 1]
+  // Direct in de cloud verwijderen (subtaken eerst), niet pas na de undo-timer
+  const childrenFirst = [...removed].sort((a, b) => (b.parentId ? 1 : 0) - (a.parentId ? 1 : 0));
+  let allOk = true;
+  for (const t of childrenFirst) {
+    allOk = (await deleteTaskFromCloud(t.id)) && allOk;
+  }
+  if (!allOk) { await fetchTasksFromCloud(); return; } // toon de echte stand
+
+  showUndoSnackbar(
+    removed.length > 1 ? 'Taak + subtaken verwijderd' : 'Taak verwijderd',
+    async () => {
+      tasks.push(...removed);
+      saveTasks();
+      const parentsFirst = [...removed].sort((a, b) => (a.parentId ? 1 : 0) - (b.parentId ? 1 : 0));
+      for (const t of parentsFirst) await saveTaskToCloud(t);
+    },
+    async () => {} // al verwijderd, niets meer te doen
+  );
+}
 
 // --- ZEN ALPINE FOCUS TIMER ---
 const timerModal = document.getElementById('timer-modal'); //[cite: 1]
