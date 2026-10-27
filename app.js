@@ -139,22 +139,22 @@ async function fetchTasksFromCloud() { //[cite: 1]
 
     if (error) throw error; //[cite: 1]
 
-    tasks = (data || []).map(t => ({ //[cite: 1]
-      id: t.id, //[cite: 1]
-      title: t.title, //[cite: 1]
-      course: t.course, //[cite: 1]
-      estimatedHours: Number(t.estimated_hours) || 0, //[cite: 1]
-      actualHours: Number(t.actual_hours) || 0, //[cite: 1]
-      deadline: t.deadline, //[cite: 1]
-      scheduledDate: t.scheduled_date, //[cite: 1]
-      isUrgent: t.is_urgent, //[cite: 1]
-      isImportant: t.is_important, //[cite: 1]
-      status: t.status, //[cite: 1]
-      completed: t.status === 'done', //[cite: 1]
-      link: t.link, //[cite: 1]
-      parentId: t.parent_id, //[cite: 1]
-      notes: t.notes || '', //[cite: 1]
-      checklist: Array.isArray(t.checklist) ? t.checklist : [] //[cite: 1]
+    tasks = (data || []).map(t => ({
+      id: t.id,
+      title: t.title,
+      course: t.course,
+      estimatedHours: Number(t.estimated_hours) || 0,
+      actualHours: Number(t.actual_hours) || 0,
+      deadline: t.deadline,
+      scheduledDate: t.scheduled_date,
+      isUrgent: t.is_urgent,
+      isImportant: t.is_important,
+      status: t.status,
+      completed: t.status === 'done',
+      link: t.link,
+      parentId: t.parent_id,
+      notes: (t.notes || '').replace(/\[PIN:[^\]]+\]/g, '').trim(), // Filtert [PIN:1302] etc. direct weg
+      checklist: Array.isArray(t.checklist) ? t.checklist : []
     })); //[cite: 1]
 
     renderApp(); //[cite: 1]
@@ -163,27 +163,32 @@ async function fetchTasksFromCloud() { //[cite: 1]
   } //[cite: 1]
 } //[cite: 1]
 
-async function saveTaskToCloud(task) { //[cite: 1]
-  if (!supabaseClient) return; //[cite: 1]
-  const dbRecord = { //[cite: 1]
-    id: task.id, //[cite: 1]
-    title: task.title, //[cite: 1]
-    course: task.course || null, //[cite: 1]
-    estimated_hours: task.estimatedHours || 0, //[cite: 1]
-    actual_hours: task.actualHours || 0, //[cite: 1]
-    deadline: task.deadline || null, //[cite: 1]
-    scheduled_date: task.scheduledDate || null, //[cite: 1]
-    is_urgent: Boolean(task.isUrgent), //[cite: 1]
-    is_important: Boolean(task.isImportant), //[cite: 1]
-    status: task.status || 'not_started', //[cite: 1]
-    link: task.link || null, //[cite: 1]
-    parent_id: task.parentId || null, //[cite: 1]
-    notes: task.notes || '', //[cite: 1]
-    checklist: Array.isArray(task.checklist) ? task.checklist : [] //[cite: 1]
-  }; //[cite: 1]
-  const { error } = await supabaseClient.from('tasks').upsert(dbRecord); //[cite: 1]
-  if (error) console.error("Fout bij opslaan taak:", error); //[cite: 1]
-} //[cite: 1]
+async function saveTaskToCloud(task) {
+  if (!supabaseClient) return;
+
+  const dbRecord = {
+    id: task.id,
+    title: task.title,
+    course: task.course || null,
+    estimated_hours: task.estimatedHours || 0,
+    actual_hours: task.actualHours || 0,
+    deadline: task.deadline || null,
+    scheduled_date: task.scheduledDate || null,
+    is_urgent: Boolean(task.isUrgent),
+    is_important: Boolean(task.isImportant),
+    status: task.status || 'not_started',
+    link: task.link || null,
+    parent_id: task.parentId || null,
+    notes: (task.notes || '').replace(/\[PIN:[^\]]+\]/g, '').trim(), // Verwijdert eventuele PIN tags definitief
+    checklist: Array.isArray(task.checklist) ? task.checklist : []
+  };
+
+  const { error } = await supabaseClient.from('tasks').upsert(dbRecord);
+  if (error) {
+    console.error("Fout bij opslaan taak:", error);
+    showToast('Opslaan mislukt: ' + error.message, 'error');
+  }
+}
 
 async function deleteTaskFromCloud(taskId) { //[cite: 1]
   if (!supabaseClient) return; //[cite: 1]
@@ -618,38 +623,41 @@ function renderCalendarGrid() { //[cite: 1]
   } //[cite: 1]
 } //[cite: 1]
 
-function renderCoursesView() { //[cite: 1]
-  const container = document.getElementById('courses-grid'); //[cite: 1]
-  container.innerHTML = ''; //[cite: 1]
+function renderCoursesView() {
+  const container = document.getElementById('courses-grid');
+  container.innerHTML = '';
 
-  const coursesSet = new Set(); //[cite: 1]
-  tasks.forEach(t => { //[cite: 1]
-    coursesSet.add(t.course && t.course.trim() ? t.course.trim() : 'Zonder Vak'); //[cite: 1]
-  }); //[cite: 1]
+  const coursesSet = new Set();
+  tasks.forEach(t => {
+    coursesSet.add(t.course && t.course.trim() ? t.course.trim() : 'Zonder Vak');
+  });
 
-  const courses = Array.from(coursesSet).sort(); //[cite: 1]
+  const courses = Array.from(coursesSet).sort();
 
-  courses.forEach(courseName => { //[cite: 1]
-    const allCourseTasks = tasks.filter(t => { //[cite: 1]
-      const match = t.course && t.course.trim() ? t.course.trim() : 'Zonder Vak'; //[cite: 1]
-      return match === courseName; //[cite: 1]
-    }); //[cite: 1]
+  courses.forEach(courseName => {
+    const allCourseTasks = tasks.filter(t => {
+      const match = t.course && t.course.trim() ? t.course.trim() : 'Zonder Vak';
+      return match === courseName;
+    });
 
-    const filteredCourseTasks = filterTasks(allCourseTasks); //[cite: 1]
+    const filteredCourseTasks = filterTasks(allCourseTasks);
 
-    const totalEst = allCourseTasks.reduce((sum, t) => sum + (Number(t.estimatedHours) || 0), 0); //[cite: 1]
-    const totalAct = allCourseTasks.reduce((sum, t) => sum + (Number(t.actualHours) || 0), 0); //[cite: 1]
-    const completedCount = allCourseTasks.filter(t => t.completed || t.status === 'done').length; //[cite: 1]
-    const percent = allCourseTasks.length > 0 ? Math.round((completedCount / allCourseTasks.length) * 100) : 0; //[cite: 1]
+    const totalEst = allCourseTasks.reduce((sum, t) => sum + (Number(t.estimatedHours) || 0), 0);
+    const totalAct = allCourseTasks.reduce((sum, t) => sum + (Number(t.actualHours) || 0), 0);
+    const completedCount = allCourseTasks.filter(t => t.completed || t.status === 'done').length;
+    const percent = allCourseTasks.length > 0 ? Math.round((completedCount / allCourseTasks.length) * 100) : 0;
 
-    const courseCard = document.createElement('div'); //[cite: 1]
-    courseCard.className = 'course-card'; //[cite: 1]
+    // Veilige id zonder ongeldige % tekens
+    const safeId = 'course-list-' + courseName.replace(/[^a-zA-Z0-9_-]/g, '_');
+
+    const courseCard = document.createElement('div');
+    courseCard.className = 'course-card';
 
     courseCard.innerHTML = `
       <div class="course-card-header">
         <div class="course-title-row">
           <div class="course-card-title">${courseName}</div>
-          <button class="btn btn-secondary btn-xs" onclick="openTaskModalForCourse('${courseName === 'Zonder Vak' ? '' : courseName}')">+ Taak</button>
+          <button class="btn btn-secondary btn-xs" onclick="openTaskModalForCourse('${courseName === 'Zonder Vak' ? '' : courseName.replace(/'/g, "\\'")}')">+ Taak</button>
         </div>
         <div class="progress-bar-container">
           <div class="progress-bar-track">
@@ -661,16 +669,16 @@ function renderCoursesView() { //[cite: 1]
           Voltooid: ${completedCount}/${allCourseTasks.length} | Plan: ${formatDuration(totalEst)} | Werk: ${formatDuration(totalAct)}
         </div>
       </div>
-      <div class="course-tasks-list course-dropzone" id="course-list-${encodeURIComponent(courseName)}" data-course="${courseName}"></div>
-    `; //[cite: 1]
+      <div class="course-tasks-list course-dropzone" id="${safeId}" data-course="${courseName}"></div>
+    `;
 
-    const listEl = courseCard.querySelector(`#course-list-${encodeURIComponent(courseName)}`); //[cite: 1]
-    renderTaskHierarchy(listEl, filteredCourseTasks); //[cite: 1]
-    setupDropzone(listEl, 'course'); //[cite: 1]
+    const listEl = courseCard.querySelector(`#${safeId}`);
+    renderTaskHierarchy(listEl, filteredCourseTasks);
+    setupDropzone(listEl, 'course');
 
-    container.appendChild(courseCard); //[cite: 1]
-  }); //[cite: 1]
-} //[cite: 1]
+    container.appendChild(courseCard);
+  });
+}
 
 function openTaskModalForCourse(courseName) { //[cite: 1]
   openNewTaskModal(); //[cite: 1]
